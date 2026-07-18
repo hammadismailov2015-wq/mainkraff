@@ -387,15 +387,26 @@ function killEnemy(e){
   for(let i=0;i<(e.boss?26:14);i++) particles.push(pt(e.x,e.y,Math.random()*7,3,'#6b4c1e',26));
   if(e.boss){ G.boss=null; document.getElementById('bossbar').classList.remove('on');
     for(let i=0;i<7;i++) dropPickup(e.x+(Math.random()-.5)*50,e.y+(Math.random()-.5)*50,'coin',1+((i*7)%3));
-    dropPickup(e.x,e.y-14,'food'); dropPickup(e.x-16,e.y,'arrow'); showMsg("Босс повержен! 💰",90);
+    dropPickup(e.x,e.y-14,'food'); dropPickup(e.x-16,e.y,'arrow'); dropPickup(e.x+16,e.y,'arrow'); showMsg("Босс повержен! 💰",90);
   } else {
+    const trench = G.terrain && G.terrain.type==='trench';
     const roll=Math.random();
-    if(roll<0.50) dropPickup(e.x,e.y,'coin',1+Math.floor(Math.random()*3));
-    else if(roll<0.68) dropPickup(e.x,e.y,'food');
-    else if(roll<0.90) dropPickup(e.x,e.y,'arrow');
+    if(trench){                                   // за рвом — чаще стрелы, добыча всегда есть
+      if(roll<0.34) dropPickup(e.x,e.y,'coin',1+Math.floor(Math.random()*3));
+      else if(roll<0.50) dropPickup(e.x,e.y,'food');
+      else dropPickup(e.x,e.y,'arrow');
+    } else {
+      if(roll<0.50) dropPickup(e.x,e.y,'coin',1+Math.floor(Math.random()*3));
+      else if(roll<0.68) dropPickup(e.x,e.y,'food');
+      else if(roll<0.90) dropPickup(e.x,e.y,'arrow');
+    }
   }
 }
-function dropPickup(x,y,type,val){ pickups.push({x,y,type,val:val||1,ph:Math.random()*6.28,life:600}); }
+function dropPickup(x,y,type,val){
+  const t=G.terrain;   // добыча из-за рва переносится на сторону игрока, чтобы её можно было собрать
+  if(t && t.type==='trench' && y < t.bottom){ x=Math.max(24,Math.min(W-24,x)); y=t.bottom+22+Math.random()*46; }
+  pickups.push({x,y,type,val:val||1,ph:Math.random()*6.28,life:600});
+}
 
 function spawnPos(){
   const t=G.terrain; let x,y;
@@ -447,8 +458,9 @@ function startBattle(idx){
   G.battleIdx=idx; const b=BATTLES[idx];
   G.wave=0; G.waveMax=b.waves; G.weapon='sword'; G.bossDone=false; G.boss=null; G.coinsThisRun=0;
   // применяем прокачку
-  G.swordDmg=3+UP.sword; G.bowDmg=2+UP.bow; G.arrowMax=30+UP.quiver*10; G.arrows=G.arrowMax;
-  G.swordCd=G.bowCd=0;
+  G.swordDmg=3+UP.sword; G.bowDmg=2+UP.bow; G.arrowMax=30+UP.quiver*10;
+  G.arrows = b.terrain==='trench' ? G.arrowMax+40 : G.arrowMax;   // на рву нужен запас — стрельба основная
+  G.swordCd=G.bowCd=0; G.arrowRegen=0;
   enemies=[]; arrows=[]; particles=[]; pickups=[];
   player.hpMax=100+UP.armor*20; player.hp=player.hpMax; player.speed=3.1*(1+UP.speed*0.08);
   player.iFrame=0; player.swing=0; player.jump=0; player.jumpCd=0;
@@ -531,6 +543,9 @@ function update(){
   if(G.swordCd>0)G.swordCd--; if(G.bowCd>0)G.bowCd--;
   if(player.swing>0)player.swing--; if(player.iFrame>0)player.iFrame--;
   if(player.jump>0)player.jump--; if(player.jumpCd>0)player.jumpCd--;
+  if(G.arrows<G.arrowMax){ G.arrowRegen=(G.arrowRegen||0)+1;   // медленное пополнение стрел, чтобы не застрять
+    const rate=(G.terrain&&G.terrain.type==='trench')?35:80;
+    if(G.arrowRegen>=rate){ G.arrowRegen=0; G.arrows++; updHud(); } }
   if(G.msgT>0){ G.msgT--; if(G.msgT===0) document.getElementById('center-msg').style.opacity=0; }
   if(G.shake>0.3)G.shake*=0.85;
 
@@ -564,8 +579,8 @@ function update(){
   arrows=arrows.filter(a=>a.life>0);
 
   for(const p of pickups){ p.life--; const d=Math.hypot(player.x-p.x,player.y-p.y);
-    if(d<60){ p.x+=(player.x-p.x)*0.14; p.y+=(player.y-p.y)*0.14; } // притяжение
-    if(d<player.r+10){ collect(p); p.life=0; } }
+    if(d<100){ p.x+=(player.x-p.x)*0.18; p.y+=(player.y-p.y)*0.18; } // притяжение
+    if(d<player.r+12){ collect(p); p.life=0; } }
   pickups=pickups.filter(p=>p.life>0);
 
   for(const p of particles){ p.x+=p.vx; p.y+=p.vy; p.vx*=0.92; p.vy*=0.92; p.life--; }
