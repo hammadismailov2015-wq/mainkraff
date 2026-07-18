@@ -94,9 +94,10 @@
   .tbtn{ position:absolute; pointer-events:auto; border-radius:50%; display:flex; align-items:center; justify-content:center;
     font-weight:800; color:#2a1c0e; background:#e8c979d8; border:3px solid #fff7; user-select:none;
     box-shadow:0 4px 12px #0007; }
-  #b-sword{ width:104px; height:104px; font-size:40px; right:150px; bottom:40px; }
-  #b-bow{ width:104px; height:104px; font-size:38px; right:34px; bottom:120px; }
-  #b-swap{ width:78px; height:78px; font-size:12px; right:40px; bottom:26px; background:#5a4220d8; color:#f3e6cf; }
+  #b-sword{ width:104px; height:104px; font-size:40px; right:150px; bottom:150px; }
+  #b-bow{ width:104px; height:104px; font-size:38px; right:44px; bottom:230px; }
+  #b-jump{ width:86px; height:86px; font-size:34px; right:150px; bottom:44px; background:#4a7a4cd8; }
+  #b-swap{ width:74px; height:74px; font-size:11px; right:52px; bottom:44px; background:#5a4220d8; color:#f3e6cf; }
 </style>
 </head>
 <body>
@@ -122,13 +123,14 @@
   </div>
   <div id="bossbar"><div class="lbl" id="boss-lbl">Босс</div><div class="bar"><i id="bossfill"></i></div></div>
   <div id="center-msg"></div>
-  <div id="controls-hint">WASD — движение · Мышь — прицел · ЛКМ — атака · ПКМ/Q — сменить оружие</div>
+  <div id="controls-hint">WASD — движение · Мышь — прицел · ЛКМ — атака · ПКМ/Q — оружие · Shift/F — прыжок-уворот</div>
 </div>
 
 <div id="touch">
   <div id="joy"><div id="knob"></div></div>
   <div class="tbtn" id="b-sword">⚔️</div>
   <div class="tbtn" id="b-bow">🏹</div>
+  <div class="tbtn" id="b-jump">⤴️</div>
   <div class="tbtn" id="b-swap">СМЕНА</div>
 </div>
 
@@ -245,6 +247,18 @@ const BATTLES = [
     goal:"Продержись шесть волн и одолей верховного полководца.",
     waves:6, perWave:10, enemyHp:4, enemySpeed:1.2, tint:"#8a6f47", bossName:"Верховный полководец Византии" },
 ];
+/* доп. настройки: тип местности, доля конницы, босс верхом */
+const BATTLE_EXTRA = {
+  badr:   { riderRatio:0.12 },
+  uhud:   { terrain:'mountain', riderRatio:0.35, bossRider:true },
+  khandaq:{ terrain:'trench',   riderRatio:0.0 },
+  khaybar:{ terrain:'oasis',    riderRatio:0.15 },
+  mutah:  { riderRatio:0.30 },
+  fath:   { riderRatio:0.10 },
+  hunayn: { riderRatio:0.30 },
+  yarmuk: { terrain:'oasis',    riderRatio:0.40, bossRider:true },
+};
+for(const b of BATTLES) Object.assign(b, BATTLE_EXTRA[b.key]||{});
 
 /* ================= Пиксельные спрайты ================= */
 /* T-тюрбан/шлем  S-кожа  C-одежда  D-тёмное/пояс  B-обувь */
@@ -306,14 +320,15 @@ const G = {
   retry:false, finale:false, coinsThisRun:0,
 };
 try{ G.unlocked = Math.max(1, +localStorage.getItem('scw_unlocked')||1); }catch(e){}
-const player = { x:W/2, y:H/2, r:16, hp:100, hpMax:100, speed:3.1, aim:0, iFrame:0, swing:0, facing:1, moving:false };
+const player = { x:W/2, y:H/2, r:16, hp:100, hpMax:100, speed:3.1, aim:0, iFrame:0, swing:0, facing:1, moving:false, jump:0, jumpCd:0 };
 let enemies=[], arrows=[], particles=[], props=[], pickups=[];
 const keys={}; let mouse={x:W/2,y:H/2,down:false};
 
 /* ================= Ввод ================= */
 addEventListener('keydown',e=>{ keys[e.key.toLowerCase()]=true;
   if(e.key===' '){ e.preventDefault(); attack(); }
-  if(e.key.toLowerCase()==='q') swapWeapon(); });
+  if(e.key.toLowerCase()==='q') swapWeapon();
+  if(e.key==='Shift'||e.key.toLowerCase()==='f'){ e.preventDefault(); doJump(); } });
 addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false; });
 cv.addEventListener('mousemove',e=>{ const r=cv.getBoundingClientRect(); mouse.x=e.clientX-r.left; mouse.y=e.clientY-r.top; });
 cv.addEventListener('mousedown',e=>{ if(e.button===0){ mouse.down=true; attack(); } if(e.button===2){ e.preventDefault(); swapWeapon(); } });
@@ -332,9 +347,12 @@ function joyEnd(e){ for(const t of e.changedTouches){ if(t.identifier===joyId){ 
 joy.addEventListener('touchend',joyEnd); joy.addEventListener('touchcancel',joyEnd);
 document.getElementById('b-sword').addEventListener('touchstart',e=>{e.preventDefault(); G.weapon='sword'; updWeaponUI(); attack();});
 document.getElementById('b-bow').addEventListener('touchstart',e=>{e.preventDefault(); G.weapon='bow'; updWeaponUI(); attack();});
+document.getElementById('b-jump').addEventListener('touchstart',e=>{e.preventDefault(); doJump();});
 document.getElementById('b-swap').addEventListener('touchstart',e=>{e.preventDefault(); swapWeapon();});
 
 /* ================= Логика ================= */
+function doJump(){ if(!G.running||G.paused) return; if(player.jump>0||player.jumpCd>0) return; player.jump=30; player.jumpCd=48;
+  for(let i=0;i<6;i++) particles.push(pt(player.x,player.y+14,Math.random()*7,1.5,'#d8b98a',16)); }
 function swapWeapon(){ G.weapon = G.weapon==='sword'?'bow':'sword'; updWeaponUI(); }
 function updWeaponUI(){
   document.getElementById('w-sword').classList.toggle('active', G.weapon==='sword');
@@ -379,22 +397,50 @@ function killEnemy(e){
 }
 function dropPickup(x,y,type,val){ pickups.push({x,y,type,val:val||1,ph:Math.random()*6.28,life:600}); }
 
-function spawnEnemy(){
-  const b=BATTLES[G.battleIdx]; const side=Math.floor(Math.random()*4); let x,y;
+function spawnPos(){
+  const t=G.terrain; let x,y;
+  if(t && t.type==='trench'){ x=Math.random()*W; y=-30; return {x,y}; }        // только сверху, за рвом
+  let sides=[0,1,2,3];
+  if(t && t.type==='mountain') sides=[1,2,3];                                    // не из-за горы (сверху)
+  const side=sides[Math.floor(Math.random()*sides.length)];
   if(side===0){x=Math.random()*W;y=-30;} else if(side===1){x=W+30;y=Math.random()*H;}
   else if(side===2){x=Math.random()*W;y=H+30;} else {x=-30;y=Math.random()*H;}
-  const ranged=Math.random()<0.28;
-  enemies.push({ x,y, r:15, hp:b.enemyHp, hpMax:b.enemyHp, speed:b.enemySpeed*(0.85+Math.random()*0.4),
-    hit:0, dead:false, ranged, shootCd:60+Math.random()*60, boss:false, facing:1, bob:Math.random()*6 });
+  return {x,y};
+}
+function spawnEnemy(){
+  const b=BATTLES[G.battleIdx]; const {x,y}=spawnPos();
+  const rider = Math.random() < (b.riderRatio||0);
+  const ranged = !rider && Math.random()<0.28;
+  enemies.push({ x,y, r:rider?17:15, hp:b.enemyHp+(rider?1:0), hpMax:b.enemyHp+(rider?1:0),
+    speed:b.enemySpeed*(rider?1.5:1)*(0.85+Math.random()*0.4),
+    hit:0, dead:false, ranged, rider, shootCd:60+Math.random()*60, boss:false, facing:1, bob:Math.random()*6 });
 }
 function spawnBoss(){
   const b=BATTLES[G.battleIdx];
-  const boss={ x:W/2, y:-60, r:30, hp:b.enemyHp*14, hpMax:b.enemyHp*14, speed:b.enemySpeed*0.8,
-    hit:0, dead:false, ranged:true, shootCd:50, boss:true, facing:1, bob:0, charge:0 };
+  const {x,y}=spawnPos();
+  const boss={ x, y, r:30, hp:b.enemyHp*14, hpMax:b.enemyHp*14, speed:b.enemySpeed*(b.bossRider?1.05:0.8),
+    hit:0, dead:false, ranged:true, rider:!!b.bossRider, shootCd:50, boss:true, facing:1, bob:0, charge:0 };
   enemies.push(boss); G.boss=boss;
-  document.getElementById('boss-lbl').textContent='👑 '+b.bossName;
+  document.getElementById('boss-lbl').textContent='👑 '+b.bossName+(b.bossRider?' 🐴':'');
   document.getElementById('bossbar').classList.add('on');
   showMsg("👑 "+b.bossName+"!",120);
+}
+function setupTerrain(b){
+  G.terrain=null;
+  if(b.terrain==='trench'){ G.terrain={type:'trench', top:H*0.30, bottom:H*0.30+38}; }
+  else if(b.terrain==='mountain'){ G.terrain={type:'mountain'}; }
+  else if(b.terrain==='oasis'){ G.terrain={type:'oasis', x:W*0.30, y:H*0.40, rx:Math.min(150,W*0.16), ry:80}; }
+}
+function clampTerrain(o, isPlayer){
+  const t=G.terrain; if(!t) return;
+  if(t.type==='trench'){
+    if(isPlayer) o.y=Math.max(o.y, t.bottom+o.r);        // игрок южнее рва
+    else o.y=Math.min(o.y, t.top-o.r);                    // враги севернее рва — не перейти
+  } else if(t.type==='oasis'){
+    const dx=(o.x-t.x)/(t.rx+o.r*0.6), dy=(o.y-t.y)/(t.ry+o.r*0.6);
+    const dd=dx*dx+dy*dy;
+    if(dd<1 && dd>0){ const k=1/Math.sqrt(dd); o.x=t.x+dx*(t.rx+o.r*0.6)*k; o.y=t.y+dy*(t.ry+o.r*0.6)*k; }
+  }
 }
 
 function startBattle(idx){
@@ -405,7 +451,9 @@ function startBattle(idx){
   G.swordCd=G.bowCd=0;
   enemies=[]; arrows=[]; particles=[]; pickups=[];
   player.hpMax=100+UP.armor*20; player.hp=player.hpMax; player.speed=3.1*(1+UP.speed*0.08);
-  player.x=W/2; player.y=H*0.62; player.iFrame=0; player.swing=0;
+  player.iFrame=0; player.swing=0; player.jump=0; player.jumpCd=0;
+  setupTerrain(b);
+  player.x=W/2; player.y = (G.terrain && G.terrain.type==='trench') ? H*0.72 : H*0.62;
   document.getElementById('battle-name').textContent=b.name;
   document.getElementById('wave-max').textContent=b.waves;
   document.getElementById('bossbar').classList.remove('on');
@@ -413,9 +461,16 @@ function startBattle(idx){
   G.running=true; G.paused=false;
   document.getElementById('touch').classList.toggle('on', IS_TOUCH);
 }
-function buildProps(b){ props=[]; const n=b.key==='khandaq'?0:7;
-  for(let i=0;i<n;i++) props.push({x:Math.random()*W,y:Math.random()*H,type:Math.random()<0.5?'palm':'rock',s:0.8+Math.random()*0.6});
-  if(b.key==='khandaq') props.push({type:'trench'}); }
+function buildProps(b){ props=[];
+  if(b.terrain==='trench') return;                       // ров рисуется отдельно
+  const n = b.terrain==='oasis' ? 4 : 7;
+  for(let i=0;i<n;i++){ let x=Math.random()*W, y=Math.random()*H;
+    const t=G.terrain;
+    if(t&&t.type==='oasis'){ const dx=(x-t.x)/t.rx,dy=(y-t.y)/t.ry; if(dx*dx+dy*dy<1.6){ i--; continue; } }
+    props.push({x,y,type:Math.random()<0.5?'palm':'rock',s:0.8+Math.random()*0.6}); }
+  if(b.terrain==='oasis'){ const o=G.terrain;              // пальмы по кромке оазиса
+    for(let k=0;k<6;k++){ const a=k/6*Math.PI*2; props.push({x:o.x+Math.cos(a)*(o.rx+18),y:o.y+Math.sin(a)*(o.ry+14),type:'palm',s:1.0+Math.random()*0.3}); } }
+}
 function nextWave(){
   const b=BATTLES[G.battleIdx]; G.wave++;
   if(G.wave>b.waves){ if(!G.bossDone){ G.bossDone=true; spawnBoss(); updHud(); return; } winBattle(); return; }
@@ -423,7 +478,7 @@ function nextWave(){
   G.spawnQueue=b.perWave+Math.floor(G.wave*1.5); G.spawnTimer=0; showMsg("Волна "+G.wave,70); updHud();
 }
 function playerHit(dmg){
-  if(player.iFrame>0) return;
+  if(player.iFrame>0 || player.jump>0) return;   // в прыжке — уворот
   player.hp-=dmg; player.iFrame=40; G.shake=Math.max(G.shake,8);
   for(let i=0;i<10;i++) particles.push(pt(player.x,player.y,Math.random()*7,3,'#e04a4a',20));
   updHud(); if(player.hp<=0){ player.hp=0; loseBattle(); }
@@ -462,8 +517,10 @@ function update(){
   if(joyActive){ mx+=joyVec.x; my+=joyVec.y; }
   const ml=Math.hypot(mx,my); if(ml>1){ mx/=ml; my/=ml; }
   player.moving = ml>0.1;
-  player.x=Math.max(20,Math.min(W-20,player.x+mx*player.speed));
-  player.y=Math.max(20,Math.min(H-20,player.y+my*player.speed));
+  const psp = player.speed*(player.jump>0?1.4:1);
+  player.x=Math.max(20,Math.min(W-20,player.x+mx*psp));
+  player.y=Math.max(20,Math.min(H-20,player.y+my*psp));
+  clampTerrain(player,true);
 
   if(IS_TOUCH){ let best=null,bd=1e9; for(const e of enemies){ const d=Math.hypot(e.x-player.x,e.y-player.y); if(d<bd){bd=d;best=e;} }
     if(best) player.aim=Math.atan2(best.y-player.y,best.x-player.x); else if(ml>0.1) player.aim=Math.atan2(my,mx);
@@ -473,6 +530,7 @@ function update(){
 
   if(G.swordCd>0)G.swordCd--; if(G.bowCd>0)G.bowCd--;
   if(player.swing>0)player.swing--; if(player.iFrame>0)player.iFrame--;
+  if(player.jump>0)player.jump--; if(player.jumpCd>0)player.jumpCd--;
   if(G.msgT>0){ G.msgT--; if(G.msgT===0) document.getElementById('center-msg').style.opacity=0; }
   if(G.shake>0.3)G.shake*=0.85;
 
@@ -487,6 +545,7 @@ function update(){
     else if(d>desired+6){ e.x+=dx/d*e.speed; e.y+=dy/d*e.speed; e.bob+=0.2; }
     else if(e.ranged && d<desired-30){ e.x-=dx/d*e.speed*0.7; e.y-=dy/d*e.speed*0.7; }
     for(const o of enemies){ if(o===e||o.dead)continue; const ox=e.x-o.x,oy=e.y-o.y,od=Math.hypot(ox,oy); if(od<e.r+o.r&&od>0){ e.x+=ox/od*1.2; e.y+=oy/od*1.2; } }
+    clampTerrain(e,false);   // ров/оазис не перейти
     if(e.hit>0)e.hit--;
     if(!e.ranged && d<e.r+player.r+2) playerHit(9);
     if(e.boss && d<e.r+player.r+4) playerHit(16);
@@ -535,25 +594,27 @@ function drawPixel(grid,pal,cx,cy,scale,facing,flash,bob){
       const col=flash?'#ffffff':pal[ch]; if(!col)continue;
       ctx.fillStyle=col; ctx.fillRect(ox+c*Math.round(scale), oy+r*Math.round(scale), step, step); } }
 }
-function drawFighter(e,pal,scale,plume){
-  ctx.fillStyle='#00000030'; ctx.beginPath(); ctx.ellipse(e.x,e.y+scale*7,scale*5,scale*2,0,0,7); ctx.fill();
-  const bob = (e.moving||e===undefined)?0:0;
-  const wob = Math.sin((e.bob||0))* (e.boss?0:1.2);
-  drawPixel(BODY,pal,e.x,e.y,scale,e.facing,e.hit>0,wob);
-  if(plume){ ctx.fillStyle='#c65ad0'; ctx.fillRect(Math.round(e.x-scale), Math.round(e.y-scale*8.5), Math.round(scale*2), Math.round(scale*2)); }
-  if(e.hp<e.hpMax && !e.boss){ ctx.fillStyle='#000'; ctx.fillRect(e.x-e.r,e.y-scale*8,e.r*2,4);
-    ctx.fillStyle='#e04a4a'; ctx.fillRect(e.x-e.r,e.y-scale*8,e.r*2*(e.hp/e.hpMax),4); }
+function drawFighter(e,pal,scale,plume,lift){
+  lift=lift||0;
+  if(!lift) ctx.fillStyle='#00000030', ctx.beginPath(), ctx.ellipse(e.x,e.y+scale*7,scale*5,scale*2,0,0,7), ctx.fill();
+  const wob = Math.sin((e.bob||0))*(e.boss?0:1.2);
+  drawPixel(BODY,pal,e.x,e.y-lift,scale,e.facing,e.hit>0,wob);
+  if(plume){ ctx.fillStyle='#c65ad0'; ctx.fillRect(Math.round(e.x-scale), Math.round(e.y-lift-scale*8.5), Math.round(scale*2), Math.round(scale*2)); }
+  if(e.hp<e.hpMax && !e.boss){ ctx.fillStyle='#000'; ctx.fillRect(e.x-e.r,e.y-lift-scale*8,e.r*2,4);
+    ctx.fillStyle='#e04a4a'; ctx.fillRect(e.x-e.r,e.y-lift-scale*8,e.r*2*(e.hp/e.hpMax),4); }
 }
 function drawPlayer(){
   const p=player;
-  ctx.fillStyle='#00000030'; ctx.beginPath(); ctx.ellipse(p.x,p.y+16,11,4,0,0,7); ctx.fill();
-  const wob = p.moving?Math.sin(G.frame*0.3)*1.4:0;
+  const jz = p.jump>0 ? Math.sin(((30-p.jump)/30)*Math.PI)*24 : 0;   // высота прыжка
+  const sr = 11*(1-jz/60);
+  ctx.fillStyle='#00000030'; ctx.beginPath(); ctx.ellipse(p.x,p.y+16,sr,sr*0.36,0,0,7); ctx.fill();
+  const wob = (p.moving&&jz<1)?Math.sin(G.frame*0.3)*1.4:0;
   const blink = p.iFrame>0 && Math.floor(p.iFrame/4)%2===0;
   ctx.globalAlpha = blink?0.4:1;
-  drawPixel(BODY,PAL_PLAYER,p.x,p.y,2.4,p.facing,false,wob);
+  drawPixel(BODY,PAL_PLAYER,p.x,p.y-jz,2.4,p.facing,false,wob);
   ctx.globalAlpha=1;
   // оружие (вращается к прицелу)
-  ctx.save(); ctx.translate(p.x,p.y-2); ctx.rotate(p.aim);
+  ctx.save(); ctx.translate(p.x,p.y-2-jz); ctx.rotate(p.aim);
   if(G.weapon==='sword'){ const sw=p.swing>0?p.swing/10:0; ctx.rotate(-0.5+sw*1.4);
     ctx.strokeStyle='#dfe4ea'; ctx.lineWidth=4; ctx.beginPath(); ctx.moveTo(12,0); ctx.lineTo(38,0); ctx.stroke();
     ctx.strokeStyle='#6b4c1e'; ctx.lineWidth=5; ctx.beginPath(); ctx.moveTo(8,0); ctx.lineTo(14,0); ctx.stroke();
@@ -577,6 +638,20 @@ function drawPickup(p){
       ctx.beginPath(); ctx.moveTo(dx,-9); ctx.lineTo(dx-2.5,-4); ctx.lineTo(dx+2.5,-4); ctx.closePath(); ctx.fill(); } }
   ctx.restore();
 }
+function drawHorse(x,y,s,facing){
+  ctx.save(); ctx.translate(x,y); ctx.scale(facing*s,s);
+  ctx.fillStyle='#00000030'; ctx.beginPath(); ctx.ellipse(0,12,15,4,0,0,7); ctx.fill();
+  const c='#7a5230', d='#5a3d1f', m='#3a2712';
+  ctx.fillStyle=d; // ноги
+  ctx.fillRect(-11,4,4,9); ctx.fillRect(-4,4,4,9); ctx.fillRect(4,4,4,9); ctx.fillRect(11,4,4,9);
+  ctx.fillStyle=c; ctx.fillRect(-13,-8,28,13);          // тело
+  ctx.fillRect(11,-18,9,12);                             // шея
+  ctx.fillRect(15,-22,12,8);                             // голова
+  ctx.fillStyle=d; ctx.fillRect(16,-27,3,5);            // ухо
+  ctx.fillStyle=m; ctx.fillRect(8,-18,4,12);            // грива
+  ctx.fillStyle=m; ctx.fillRect(-16,-8,4,15);           // хвост
+  ctx.restore();
+}
 function drawPalm(x,y,s){ ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
   ctx.fillStyle='#00000020'; ctx.beginPath(); ctx.ellipse(0,4,14,5,0,0,7); ctx.fill();
   ctx.strokeStyle='#5a3d1a'; ctx.lineWidth=5; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-3,-34); ctx.stroke();
@@ -587,6 +662,33 @@ function drawRock(x,y,s){ ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
   ctx.fillStyle='#00000020'; ctx.beginPath(); ctx.ellipse(0,4,16,5,0,0,7); ctx.fill();
   ctx.fillStyle='#9c8460'; ctx.beginPath(); ctx.moveTo(-14,4); ctx.quadraticCurveTo(-16,-12,0,-14); ctx.quadraticCurveTo(18,-12,14,4); ctx.fill();
   ctx.restore(); }
+function drawMountain(){
+  const mx=W*0.5, base=H*0.26;
+  ctx.fillStyle='#8a6a44'; ctx.beginPath();
+  ctx.moveTo(mx-W*0.44,base); ctx.lineTo(mx-W*0.14,base-H*0.22); ctx.lineTo(mx+0.02*W,base-H*0.10);
+  ctx.lineTo(mx+W*0.20,base-H*0.28); ctx.lineTo(mx+W*0.46,base); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#75583a'; ctx.beginPath();
+  ctx.moveTo(mx+W*0.20,base-H*0.28); ctx.lineTo(mx+W*0.46,base); ctx.lineTo(mx+W*0.29,base); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#9c7a4e'; ctx.beginPath();
+  ctx.moveTo(mx-W*0.14,base-H*0.22); ctx.lineTo(mx-W*0.06,base-H*0.12); ctx.lineTo(mx-W*0.20,base); ctx.lineTo(mx-W*0.44,base); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#5f4a30'; ctx.font='italic 13px serif'; ctx.textAlign='center'; ctx.fillText('гора Ухуд',mx,base-H*0.30);
+}
+function drawTerrain(){
+  const t=G.terrain; if(!t) return;
+  if(t.type==='trench'){
+    ctx.fillStyle='#3a2510'; ctx.fillRect(0,t.top,W,t.bottom-t.top);
+    ctx.fillStyle='#241608'; ctx.fillRect(0,t.top,W,9);
+    ctx.fillStyle='#5a3d1f'; ctx.fillRect(0,t.bottom-6,W,6);
+    ctx.strokeStyle='#241608'; ctx.lineWidth=3;                 // заострённые колья по северному краю
+    for(let x=14;x<W;x+=44){ ctx.beginPath(); ctx.moveTo(x,t.top+4); ctx.lineTo(x+7,t.top-10); ctx.stroke(); }
+  } else if(t.type==='mountain'){ drawMountain(); }
+  else if(t.type==='oasis'){
+    ctx.fillStyle='#6b5a3a'; ctx.beginPath(); ctx.ellipse(t.x,t.y,t.rx+10,t.ry+8,0,0,7); ctx.fill(); // берег
+    ctx.fillStyle='#3f7a8a'; ctx.beginPath(); ctx.ellipse(t.x,t.y,t.rx,t.ry,0,0,7); ctx.fill();
+    ctx.fillStyle='#5aa6b6'; ctx.beginPath(); ctx.ellipse(t.x,t.y-3,t.rx*0.82,t.ry*0.72,0,0,7); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.22)'; ctx.beginPath(); ctx.ellipse(t.x-t.rx*0.3,t.y-t.ry*0.32,t.rx*0.28,t.ry*0.16,0,0,7); ctx.fill();
+  }
+}
 
 function draw(){
   const b=BATTLES[G.battleIdx]||BATTLES[0];
@@ -598,14 +700,18 @@ function draw(){
   ctx.fillStyle='#00000012';
   for(let i=0;i<4;i++){ ctx.beginPath(); const yy=H*(0.3+i*0.18); ctx.moveTo(0,yy);
     for(let x=0;x<=W;x+=40) ctx.lineTo(x,yy+Math.sin((x*0.01)+i)*14); ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.fill(); }
-  if(b.key==='khandaq'){ ctx.fillStyle='#4a2f12'; ctx.fillRect(0,H*0.30,W,26); ctx.fillStyle='#2f1d0a'; ctx.fillRect(0,H*0.30,W,8); }
+  drawTerrain();
   for(const p of props){ if(p.type==='palm')drawPalm(p.x,p.y,p.s); else if(p.type==='rock')drawRock(p.x,p.y,p.s); }
   for(const p of pickups) drawPickup(p);
   for(const p of particles){ ctx.globalAlpha=Math.max(0,p.life/26); ctx.fillStyle=p.col; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7); ctx.fill(); }
   ctx.globalAlpha=1;
   // сортировка по y для глубины
   const drawn=enemies.slice().sort((a,c)=>a.y-c.y);
-  for(const e of drawn){ if(e.boss) drawFighter(e,PAL_BOSS,4.4,true); else drawFighter(e, e.ranged?PAL_RANGED:PAL_MELEE, 2.3); }
+  for(const e of drawn){
+    if(e.rider) drawHorse(e.x, e.y+(e.boss?8:4), e.boss?2.3:1.5, e.facing);
+    if(e.boss) drawFighter(e,PAL_BOSS,4.4,true, e.rider?40:0);
+    else drawFighter(e, e.ranged?PAL_RANGED:PAL_MELEE, 2.3, false, e.rider?18:0);
+  }
   for(const ar of arrows){ ctx.strokeStyle=ar.mine?'#3a2a12':'#5a1f1f'; ctx.lineWidth=ar.mine?3:2.5;
     ctx.beginPath(); ctx.moveTo(ar.x,ar.y); ctx.lineTo(ar.x-ar.vx*1.6,ar.y-ar.vy*1.6); ctx.stroke();
     ctx.fillStyle=ar.mine?'#e8c979':'#c05a5a'; ctx.beginPath(); ctx.arc(ar.x,ar.y,2.2,0,7); ctx.fill(); }
