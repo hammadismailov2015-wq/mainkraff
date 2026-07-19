@@ -256,7 +256,7 @@ const BATTLE_EXTRA = {
   mutah:  { riderRatio:0.30 },
   fath:   { riderRatio:0.10 },
   hunayn: { terrain:'valley', riderRatio:0.30 },
-  yarmuk: { terrain:'oasis',    riderRatio:0.40, bossRider:true },
+  yarmuk: { terrain:'river',    riderRatio:0.40, bossRider:true },
 };
 for(const b of BATTLES) Object.assign(b, BATTLE_EXTRA[b.key]||{});
 
@@ -413,6 +413,11 @@ function spawnPos(){
   if(t && t.type==='trench'){ x=Math.random()*W; y=-30; return {x,y}; }        // только сверху, за рвом
   if(t && t.type==='valley'){ x=t.left+8+Math.random()*(t.right-t.left-16);    // в узком коридоне: спереди и сзади
     y = Math.random()<0.68 ? -30 : H+30; return {x,y}; }
+  if(t && t.type==='river'){                                                    // с суши (восточнее реки), не из воды
+    const side=[0,1,2][Math.floor(Math.random()*3)];
+    if(side===1){ x=W+30; y=Math.random()*H; }
+    else { x=t.x1+20+Math.random()*(W-t.x1-40); y=side===0?-30:H+30; }
+    return {x,y}; }
   let sides=[0,1,2,3];
   if(t && t.type==='mountain') sides=[1,2,3];                                    // не из-за горы (сверху)
   const side=sides[Math.floor(Math.random()*sides.length)];
@@ -444,6 +449,7 @@ function setupTerrain(b){
   else if(b.terrain==='mountain'){ G.terrain={type:'mountain'}; }
   else if(b.terrain==='oasis'){ G.terrain={type:'oasis', x:W*0.30, y:H*0.40, rx:Math.min(150,W*0.16), ry:80}; }
   else if(b.terrain==='valley'){ const half=Math.min(W*0.24, 240); G.terrain={type:'valley', left:W/2-half, right:W/2+half}; }
+  else if(b.terrain==='river'){ const x0=W*0.07, w=Math.min(190, W*0.22); G.terrain={type:'river', x0, x1:x0+w}; }
 }
 function clampTerrain(o, isPlayer){
   const t=G.terrain; if(!t) return;
@@ -456,6 +462,8 @@ function clampTerrain(o, isPlayer){
     if(dd<1 && dd>0){ const k=1/Math.sqrt(dd); o.x=t.x+dx*(t.rx+o.r*0.6)*k; o.y=t.y+dy*(t.ry+o.r*0.6)*k; }
   } else if(t.type==='valley'){
     o.x=Math.max(t.left+o.r, Math.min(t.right-o.r, o.x));  // зажаты в узком коридоне между гор
+  } else if(t.type==='river'){
+    if(!isPlayer) o.x=Math.max(o.x, t.x1+o.r);   // враги не заходят в реку; игрок — может плыть
   }
 }
 
@@ -484,9 +492,12 @@ function buildProps(b){ props=[];
   for(let i=0;i<n;i++){ let x=Math.random()*W, y=Math.random()*H;
     const t=G.terrain;
     if(t&&t.type==='oasis'){ const dx=(x-t.x)/t.rx,dy=(y-t.y)/t.ry; if(dx*dx+dy*dy<1.6){ i--; continue; } }
+    if(t&&t.type==='river' && x<t.x1+24){ i--; continue; }   // не ставим в реку
     props.push({x,y,type:Math.random()<0.5?'palm':'rock',s:0.8+Math.random()*0.6}); }
   if(b.terrain==='oasis'){ const o=G.terrain;              // пальмы по кромке оазиса
     for(let k=0;k<6;k++){ const a=k/6*Math.PI*2; props.push({x:o.x+Math.cos(a)*(o.rx+18),y:o.y+Math.sin(a)*(o.ry+14),type:'palm',s:1.0+Math.random()*0.3}); } }
+  if(b.terrain==='river'){ const r=G.terrain;              // пальмы по восточному берегу
+    for(let k=0;k<5;k++) props.push({x:r.x1+14+Math.random()*20, y:30+k*(H-60)/4, type:'palm', s:0.9+Math.random()*0.3}); }
 }
 function nextWave(){
   const b=BATTLES[G.battleIdx]; G.wave++;
@@ -534,9 +545,14 @@ function update(){
   if(joyActive){ mx+=joyVec.x; my+=joyVec.y; }
   const ml=Math.hypot(mx,my); if(ml>1){ mx/=ml; my/=ml; }
   player.moving = ml>0.1;
-  const psp = player.speed*(player.jump>0?1.4:1);
+  const _t=G.terrain;
+  const inWater = _t && _t.type==='river' && player.x>=_t.x0 && player.x<=_t.x1;
+  player.swimming = inWater && player.jump<=0;
+  let psp = player.speed*(player.jump>0?1.4:1);
+  if(player.swimming) psp*=0.6;                    // в воде плывёшь медленнее
   player.x=Math.max(20,Math.min(W-20,player.x+mx*psp));
   player.y=Math.max(20,Math.min(H-20,player.y+my*psp));
+  if(player.swimming) player.y=Math.min(H-20, player.y+0.7);   // течение сносит вниз
   clampTerrain(player,true);
 
   if(IS_TOUCH){ let best=null,bd=1e9; for(const e of enemies){ const d=Math.hypot(e.x-player.x,e.y-player.y); if(d<bd){bd=d;best=e;} }
@@ -627,7 +643,11 @@ function drawPlayer(){
   const p=player;
   const jz = p.jump>0 ? Math.sin(((30-p.jump)/30)*Math.PI)*24 : 0;   // высота прыжка
   const sr = 11*(1-jz/60);
-  ctx.fillStyle='#00000030'; ctx.beginPath(); ctx.ellipse(p.x,p.y+16,sr,sr*0.36,0,0,7); ctx.fill();
+  if(p.swimming && jz<1){                                             // плывём: рябь вместо тени
+    ctx.strokeStyle='rgba(255,255,255,.55)'; ctx.lineWidth=2; const rr=(G.frame%22)/22;
+    ctx.beginPath(); ctx.ellipse(p.x,p.y+11,15+rr*9,5.5+rr*3,0,0,7); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(p.x,p.y+11,8,3,0,0,7); ctx.stroke();
+  } else { ctx.fillStyle='#00000030'; ctx.beginPath(); ctx.ellipse(p.x,p.y+16,sr,sr*0.36,0,0,7); ctx.fill(); }
   const wob = (p.moving&&jz<1)?Math.sin(G.frame*0.3)*1.4:0;
   const blink = p.iFrame>0 && Math.floor(p.iFrame/4)%2===0;
   ctx.globalAlpha = blink?0.4:1;
@@ -703,12 +723,25 @@ function drawTerrain(){
     for(let x=14;x<W;x+=44){ ctx.beginPath(); ctx.moveTo(x,t.top+4); ctx.lineTo(x+7,t.top-10); ctx.stroke(); }
   } else if(t.type==='mountain'){ drawMountain(); }
   else if(t.type==='valley'){ drawValley(t); }
+  else if(t.type==='river'){ drawRiver(t); }
   else if(t.type==='oasis'){
     ctx.fillStyle='#6b5a3a'; ctx.beginPath(); ctx.ellipse(t.x,t.y,t.rx+10,t.ry+8,0,0,7); ctx.fill(); // берег
     ctx.fillStyle='#3f7a8a'; ctx.beginPath(); ctx.ellipse(t.x,t.y,t.rx,t.ry,0,0,7); ctx.fill();
     ctx.fillStyle='#5aa6b6'; ctx.beginPath(); ctx.ellipse(t.x,t.y-3,t.rx*0.82,t.ry*0.72,0,0,7); ctx.fill();
     ctx.fillStyle='rgba(255,255,255,.22)'; ctx.beginPath(); ctx.ellipse(t.x-t.rx*0.3,t.y-t.ry*0.32,t.rx*0.28,t.ry*0.16,0,0,7); ctx.fill();
   }
+}
+function drawRiver(t){
+  const w=t.x1-t.x0;
+  ctx.fillStyle='#4a6a3a'; ctx.fillRect(t.x0-10,0,w+20,H);                 // травянистые берега
+  ctx.fillStyle='#2f5f74'; ctx.fillRect(t.x0-4,0,w+8,H);                   // глубина у кромки
+  ctx.fillStyle='#3f88a0'; ctx.fillRect(t.x0,0,w,H);                       // вода
+  ctx.fillStyle='#58a6bd';                                                  // блики течения (текут вниз)
+  for(let i=0;i<3;i++){ const yy=((G.frame*1.6 + i*90)%(H+80))-80; ctx.fillRect(t.x0+w*(0.18+i*0.3), yy, 5, 46); }
+  ctx.strokeStyle='rgba(255,255,255,.22)'; ctx.lineWidth=2;                 // рябь
+  for(let y=-24;y<H;y+=24){ const off=(G.frame*1.3)%24; ctx.beginPath();
+    for(let x=t.x0;x<=t.x1;x+=12){ const yy=y+off+Math.sin((x+G.frame*2)*0.09)*3; if(x===t.x0)ctx.moveTo(x,yy); else ctx.lineTo(x,yy); } ctx.stroke(); }
+  ctx.fillStyle='#5f4a30'; ctx.font='italic 12px serif'; ctx.textAlign='center'; ctx.fillText('р. Ярмук', t.x0+w/2, 16);
 }
 function drawValley(t){
   const seg=7;
