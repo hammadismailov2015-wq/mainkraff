@@ -255,7 +255,7 @@ const BATTLE_EXTRA = {
   khaybar:{ terrain:'oasis',    riderRatio:0.15 },
   mutah:  { riderRatio:0.30 },
   fath:   { riderRatio:0.10 },
-  hunayn: { riderRatio:0.30 },
+  hunayn: { terrain:'valley', riderRatio:0.30 },
   yarmuk: { terrain:'oasis',    riderRatio:0.40, bossRider:true },
 };
 for(const b of BATTLES) Object.assign(b, BATTLE_EXTRA[b.key]||{});
@@ -411,6 +411,8 @@ function dropPickup(x,y,type,val){
 function spawnPos(){
   const t=G.terrain; let x,y;
   if(t && t.type==='trench'){ x=Math.random()*W; y=-30; return {x,y}; }        // только сверху, за рвом
+  if(t && t.type==='valley'){ x=t.left+8+Math.random()*(t.right-t.left-16);    // в узком коридоне: спереди и сзади
+    y = Math.random()<0.68 ? -30 : H+30; return {x,y}; }
   let sides=[0,1,2,3];
   if(t && t.type==='mountain') sides=[1,2,3];                                    // не из-за горы (сверху)
   const side=sides[Math.floor(Math.random()*sides.length)];
@@ -441,6 +443,7 @@ function setupTerrain(b){
   if(b.terrain==='trench'){ G.terrain={type:'trench', top:H*0.30, bottom:H*0.30+38}; }
   else if(b.terrain==='mountain'){ G.terrain={type:'mountain'}; }
   else if(b.terrain==='oasis'){ G.terrain={type:'oasis', x:W*0.30, y:H*0.40, rx:Math.min(150,W*0.16), ry:80}; }
+  else if(b.terrain==='valley'){ const half=Math.min(W*0.24, 240); G.terrain={type:'valley', left:W/2-half, right:W/2+half}; }
 }
 function clampTerrain(o, isPlayer){
   const t=G.terrain; if(!t) return;
@@ -451,6 +454,8 @@ function clampTerrain(o, isPlayer){
     const dx=(o.x-t.x)/(t.rx+o.r*0.6), dy=(o.y-t.y)/(t.ry+o.r*0.6);
     const dd=dx*dx+dy*dy;
     if(dd<1 && dd>0){ const k=1/Math.sqrt(dd); o.x=t.x+dx*(t.rx+o.r*0.6)*k; o.y=t.y+dy*(t.ry+o.r*0.6)*k; }
+  } else if(t.type==='valley'){
+    o.x=Math.max(t.left+o.r, Math.min(t.right-o.r, o.x));  // зажаты в узком коридоне между гор
   }
 }
 
@@ -697,12 +702,34 @@ function drawTerrain(){
     ctx.strokeStyle='#241608'; ctx.lineWidth=3;                 // заострённые колья по северному краю
     for(let x=14;x<W;x+=44){ ctx.beginPath(); ctx.moveTo(x,t.top+4); ctx.lineTo(x+7,t.top-10); ctx.stroke(); }
   } else if(t.type==='mountain'){ drawMountain(); }
+  else if(t.type==='valley'){ drawValley(t); }
   else if(t.type==='oasis'){
     ctx.fillStyle='#6b5a3a'; ctx.beginPath(); ctx.ellipse(t.x,t.y,t.rx+10,t.ry+8,0,0,7); ctx.fill(); // берег
     ctx.fillStyle='#3f7a8a'; ctx.beginPath(); ctx.ellipse(t.x,t.y,t.rx,t.ry,0,0,7); ctx.fill();
     ctx.fillStyle='#5aa6b6'; ctx.beginPath(); ctx.ellipse(t.x,t.y-3,t.rx*0.82,t.ry*0.72,0,0,7); ctx.fill();
     ctx.fillStyle='rgba(255,255,255,.22)'; ctx.beginPath(); ctx.ellipse(t.x-t.rx*0.3,t.y-t.ry*0.32,t.rx*0.28,t.ry*0.16,0,0,7); ctx.fill();
   }
+}
+function drawValley(t){
+  const seg=7;
+  const leftEdge=i=>t.left - ((i%2)?26:6) - Math.sin(i*1.3)*10;
+  const rightEdge=i=>t.right + ((i%2)?26:6) + Math.sin(i*1.3)*10;
+  // левая скальная стена: тёмная масса + светлая кромка-склон
+  ctx.fillStyle='#5e4526'; ctx.beginPath(); ctx.moveTo(0,-4); ctx.lineTo(leftEdge(0),-4);
+  for(let i=0;i<=seg;i++) ctx.lineTo(leftEdge(i), H*i/seg); ctx.lineTo(0,H+4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#8a6a3f'; ctx.beginPath(); ctx.moveTo(leftEdge(0),-4);          // освещённый склон у кромки
+  for(let i=0;i<=seg;i++) ctx.lineTo(leftEdge(i), H*i/seg);
+  for(let i=seg;i>=0;i--) ctx.lineTo(leftEdge(i)-16, H*i/seg); ctx.closePath(); ctx.fill();
+  // правая скальная стена
+  ctx.fillStyle='#5e4526'; ctx.beginPath(); ctx.moveTo(W,-4); ctx.lineTo(rightEdge(0),-4);
+  for(let i=0;i<=seg;i++) ctx.lineTo(rightEdge(i), H*i/seg); ctx.lineTo(W,H+4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#75592f'; ctx.beginPath(); ctx.moveTo(rightEdge(0),-4);
+  for(let i=0;i<=seg;i++) ctx.lineTo(rightEdge(i), H*i/seg);
+  for(let i=seg;i>=0;i--) ctx.lineTo(rightEdge(i)+16, H*i/seg); ctx.closePath(); ctx.fill();
+  // валуны у подножия стен
+  ctx.fillStyle='#4a3620';
+  for(let i=1;i<seg;i++){ ctx.beginPath(); ctx.ellipse(t.left-6,H*i/seg,12,7,0,0,7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(t.right+6,H*(i+0.5)/seg,12,7,0,0,7); ctx.fill(); }
 }
 
 function draw(){
