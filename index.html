@@ -246,6 +246,11 @@ const BATTLES = [
     facts:["Командовал Халид ибн аль-Валид","Длилась около шести дней","Открыла путь к освобождению Шама"],
     goal:"Продержись шесть волн и одолей верховного полководца.",
     waves:6, perWave:10, enemyHp:4, enemySpeed:1.2, tint:"#8a6f47", bossName:"Верховный полководец Византии" },
+  { key:"modern", name:"Современная битва", arab:"", year:"🎖️ Бонус · вне истории",
+    desc:"Фантазийный бонус-уровень, не относящийся к истории Ислама. Пересядь за технику и отбей волны противника: води танк, подними самолёт или встань к пушке.",
+    facts:["Это аркадный бонус, а не историческое событие","Переключай технику клавишами 1/2/3 или кнопкой V","Снаряды взрываются и задевают сразу нескольких врагов"],
+    goal:"Уничтожь волны техники и вражеский супертанк.",
+    waves:4, perWave:6, enemyHp:6, enemySpeed:0.75, tint:"#6f7a52", bossName:"Вражеский супертанк", modern:true },
 ];
 /* доп. настройки: тип местности, доля конницы, босс верхом */
 const BATTLE_EXTRA = {
@@ -328,7 +333,8 @@ const keys={}; let mouse={x:W/2,y:H/2,down:false};
 addEventListener('keydown',e=>{ keys[e.key.toLowerCase()]=true;
   if(e.key===' '){ e.preventDefault(); attack(); }
   if(e.key.toLowerCase()==='q') swapWeapon();
-  if(e.key==='Shift'||e.key.toLowerCase()==='f'){ e.preventDefault(); doJump(); } });
+  if(e.key==='Shift'||e.key.toLowerCase()==='f'){ e.preventDefault(); doJump(); }
+  if(G.modern){ if(e.key==='1')setVehicle('tank'); else if(e.key==='2')setVehicle('plane'); else if(e.key==='3')setVehicle('cannon'); else if(e.key.toLowerCase()==='v')swapWeapon(); } });
 addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false; });
 cv.addEventListener('mousemove',e=>{ const r=cv.getBoundingClientRect(); mouse.x=e.clientX-r.left; mouse.y=e.clientY-r.top; });
 cv.addEventListener('mousedown',e=>{ if(e.button===0){ mouse.down=true; attack(); } if(e.button===2){ e.preventDefault(); swapWeapon(); } });
@@ -351,12 +357,43 @@ document.getElementById('b-jump').addEventListener('touchstart',e=>{e.preventDef
 document.getElementById('b-swap').addEventListener('touchstart',e=>{e.preventDefault(); swapWeapon();});
 
 /* ================= Логика ================= */
-function doJump(){ if(!G.running||G.paused) return; if(player.jump>0||player.jumpCd>0) return; player.jump=30; player.jumpCd=48;
+const VEHICLES=['tank','plane','cannon'];
+const VEH_INFO={ tank:{ic:'🚜',nm:'Танк'}, plane:{ic:'✈️',nm:'Самолёт'}, cannon:{ic:'💥',nm:'Пушка'} };
+function setVehicle(v){ if(!G.modern) return; G.vehicle=v; updWeaponUI(); showMsg(VEH_INFO[v].ic+' '+VEH_INFO[v].nm,36); }
+function doJump(){ if(!G.running||G.paused||G.modern) return; if(player.jump>0||player.jumpCd>0) return; player.jump=30; player.jumpCd=48;
   for(let i=0;i<6;i++) particles.push(pt(player.x,player.y+14,Math.random()*7,1.5,'#d8b98a',16)); }
-function swapWeapon(){ G.weapon = G.weapon==='sword'?'bow':'sword'; updWeaponUI(); }
+function swapWeapon(){
+  if(G.modern){ const i=VEHICLES.indexOf(G.vehicle); setVehicle(VEHICLES[(i+1)%VEHICLES.length]); return; }
+  G.weapon = G.weapon==='sword'?'bow':'sword'; updWeaponUI();
+}
+function modernFire(){ if(G.bowCd>0) return;
+  if(G.vehicle==='tank'){ G.bowCd=30; spawnShell(player.aim,10,16,58); }
+  else if(G.vehicle==='cannon'){ G.bowCd=52; spawnShell(player.aim,8,30,88); }
+  else { G.bowCd=6; spawnBullet(player.aim,5); }
+}
+function spawnShell(ang,speed,dmg,aoe){
+  arrows.push({x:player.x+Math.cos(ang)*26,y:player.y+Math.sin(ang)*26,vx:Math.cos(ang)*speed,vy:Math.sin(ang)*speed,life:80,mine:true,dmg,aoe,kind:'shell'});
+  for(let i=0;i<5;i++) particles.push(pt(player.x+Math.cos(ang)*22,player.y+Math.sin(ang)*22,ang,3,'#ffb84a',12));
+  G.shake=Math.max(G.shake,3);
+}
+function spawnBullet(ang,dmg){ const s=ang+(Math.random()-.5)*0.08;
+  arrows.push({x:player.x+Math.cos(ang)*20,y:player.y+Math.sin(ang)*20,vx:Math.cos(s)*13,vy:Math.sin(s)*13,life:38,mine:true,dmg,aoe:0,kind:'bullet'});
+}
+function explode(x,y,r,dmg,mine){
+  G.shake=Math.max(G.shake, mine?7:9);
+  for(let i=0;i<20;i++){ const a=Math.random()*7, sp=1+Math.random()*4;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:22+Math.random()*10,col:(i%3)?'#ff8a2a':'#ffd24a',r:2+Math.random()*3}); }
+  for(let i=0;i<8;i++){ const a=Math.random()*7; particles.push({x,y,vx:Math.cos(a)*1.5,vy:Math.sin(a)*1.5,life:26,col:'#3a2a1a',r:3+Math.random()*3}); }
+  if(mine){ for(const e of enemies){ if(e.dead)continue; const d=Math.hypot(e.x-x,e.y-y); if(d<r) damageEnemy(e,Math.round(dmg*(1-d/r*0.5)),Math.atan2(e.y-y,e.x-x)); } }
+  else { const d=Math.hypot(player.x-x,player.y-y); if(d<r) playerHit(Math.round(dmg*(1-d/r*0.5))); }
+}
 function updWeaponUI(){
-  document.getElementById('w-sword').classList.toggle('active', G.weapon==='sword');
-  document.getElementById('w-bow').classList.toggle('active', G.weapon==='bow');
+  const ws=document.getElementById('w-sword'), wb=document.getElementById('w-bow');
+  if(G.modern){ const v=VEH_INFO[G.vehicle]; ws.innerHTML=v.ic+' '+v.nm; ws.classList.add('active'); wb.style.display='none'; return; }
+  wb.style.display='';
+  ws.innerHTML='⚔️ Меч <b id="lv-sword"></b>'; wb.innerHTML='🏹 Лук <b id="lv-bow"></b>';
+  ws.classList.toggle('active', G.weapon==='sword');
+  wb.classList.toggle('active', G.weapon==='bow');
   document.getElementById('lv-sword').textContent = UP.sword?('+'+UP.sword):'';
   document.getElementById('lv-bow').textContent = UP.bow?('+'+UP.bow):'';
 }
@@ -366,6 +403,7 @@ function pt(x,y,ang,sp,col,life){ return {x,y,vx:Math.cos(ang)*sp*(0.5+Math.rand
 
 function attack(){
   if(!G.running||G.paused) return;
+  if(G.modern){ modernFire(); return; }
   if(G.weapon==='sword'){
     if(G.swordCd>0) return; G.swordCd=15; player.swing=10;
     for(const e of enemies){ const d=Math.hypot(e.x-player.x,e.y-player.y);
@@ -427,6 +465,11 @@ function spawnPos(){
 }
 function spawnEnemy(){
   const b=BATTLES[G.battleIdx]; const {x,y}=spawnPos();
+  if(G.modern){ const tank=Math.random()<0.4;
+    enemies.push({ x,y, r:tank?22:15, hp:tank?b.enemyHp*4:b.enemyHp, hpMax:tank?b.enemyHp*4:b.enemyHp,
+      speed:b.enemySpeed*(tank?0.7:1.05)*(0.85+Math.random()*0.3), hit:0, dead:false,
+      ranged:tank, tank, modern:true, shootCd:70+Math.random()*70, boss:false, facing:1, bob:Math.random()*6 });
+    return; }
   const rider = Math.random() < (b.riderRatio||0);
   const ranged = !rider && Math.random()<0.28;
   enemies.push({ x,y, r:rider?17:15, hp:b.enemyHp+(rider?1:0), hpMax:b.enemyHp+(rider?1:0),
@@ -436,8 +479,11 @@ function spawnEnemy(){
 function spawnBoss(){
   const b=BATTLES[G.battleIdx];
   const {x,y}=spawnPos();
-  const boss={ x, y, r:30, hp:b.enemyHp*14, hpMax:b.enemyHp*14, speed:b.enemySpeed*(b.bossRider?1.05:0.8),
-    hit:0, dead:false, ranged:true, rider:!!b.bossRider, shootCd:50, boss:true, facing:1, bob:0, charge:0 };
+  let boss;
+  if(G.modern){ boss={ x, y, r:36, hp:b.enemyHp*16, hpMax:b.enemyHp*16, speed:b.enemySpeed*0.6,
+    hit:0, dead:false, ranged:true, tank:true, modern:true, boss:true, shootCd:40, facing:1, bob:0, charge:0 }; }
+  else { boss={ x, y, r:30, hp:b.enemyHp*14, hpMax:b.enemyHp*14, speed:b.enemySpeed*(b.bossRider?1.05:0.8),
+    hit:0, dead:false, ranged:true, rider:!!b.bossRider, shootCd:50, boss:true, facing:1, bob:0, charge:0 }; }
   enemies.push(boss); G.boss=boss;
   document.getElementById('boss-lbl').textContent='👑 '+b.bossName+(b.bossRider?' 🐴':'');
   document.getElementById('bossbar').classList.add('on');
@@ -476,13 +522,18 @@ function startBattle(idx){
   G.swordCd=G.bowCd=0; G.arrowRegen=0;
   enemies=[]; arrows=[]; particles=[]; pickups=[];
   player.hpMax=100+UP.armor*20; player.hp=player.hpMax; player.speed=3.1*(1+UP.speed*0.08);
-  player.iFrame=0; player.swing=0; player.jump=0; player.jumpCd=0;
+  player.iFrame=0; player.swing=0; player.jump=0; player.jumpCd=0; player.swimming=false;
+  G.modern=!!b.modern;
+  if(G.modern){ G.vehicle='tank'; player.hpMax=220+UP.armor*30; player.hp=player.hpMax; player.speed=2.6*(1+UP.speed*0.06); }
   setupTerrain(b);
   player.x=W/2; player.y = (G.terrain && G.terrain.type==='trench') ? H*0.72 : H*0.62;
   document.getElementById('battle-name').textContent=b.name;
   document.getElementById('wave-max').textContent=b.waves;
   document.getElementById('bossbar').classList.remove('on');
   buildProps(b); updWeaponUI(); updHud(); nextWave();
+  document.getElementById('controls-hint').textContent = G.modern
+    ? 'WASD — движение · Мышь — прицел · ЛКМ — огонь · 1/2/3 или V/СМЕНА — техника (танк/самолёт/пушка)'
+    : 'WASD — движение · Мышь — прицел · ЛКМ — атака · ПКМ/Q — оружие · Shift/F — прыжок-уворот';
   G.running=true; G.paused=false;
   document.getElementById('touch').classList.toggle('on', IS_TOUCH);
 }
@@ -530,8 +581,11 @@ function winBattle(){
 }
 function loseBattle(){
   G.running=false; G.bossDone=false; document.getElementById('bossbar').classList.remove('on');
-  document.getElementById('res-title').textContent="Ты пал в бою";
-  document.getElementById('res-text').innerHTML="«Поистине, мы принадлежим Аллаху и к Нему возвращаемся». Терпение (сабр) ведёт к победе. Собрано за бой: <b class='coinTag'>"+G.coinsThisRun+"</b> 💰";
+  document.getElementById('res-title').textContent = G.modern ? "Техника уничтожена" : "Ты пал в бою";
+  document.getElementById('res-text').innerHTML = (G.modern
+      ? "Твоя машина подбита. Попробуй снова — меняй технику и держись подвижно. "
+      : "«Поистине, мы принадлежим Аллаху и к Нему возвращаемся». Терпение (сабр) ведёт к победе. ")
+    + "Собрано за бой: <b class='coinTag'>"+G.coinsThisRun+"</b> 💰";
   document.getElementById('res-fact').innerHTML="🔨 Потрать монеты в кузнице и попробуй снова. Собирай 🍎 еду для лечения и 🏹 стрелы.";
   document.getElementById('btn-next').textContent="Повторить битву"; G.retry=true; showScreen('result');
 }
@@ -550,6 +604,7 @@ function update(){
   player.swimming = inWater && player.jump<=0;
   let psp = player.speed*(player.jump>0?1.4:1);
   if(player.swimming) psp*=0.6;                    // в воде плывёшь медленнее
+  if(G.modern) psp = player.speed*(G.vehicle==='plane'?1.95:G.vehicle==='cannon'?0.22:1.05);
   player.x=Math.max(20,Math.min(W-20,player.x+mx*psp));
   player.y=Math.max(20,Math.min(H-20,player.y+my*psp));
   if(player.swimming) player.y=Math.min(H-20, player.y+0.7);   // течение сносит вниз
@@ -559,7 +614,7 @@ function update(){
     if(best) player.aim=Math.atan2(best.y-player.y,best.x-player.x); else if(ml>0.1) player.aim=Math.atan2(my,mx);
   } else player.aim=Math.atan2(mouse.y-player.y,mouse.x-player.x);
   player.facing = Math.cos(player.aim)>=0?1:-1;
-  if(mouse.down && G.weapon==='bow') attack();
+  if(mouse.down && (G.modern || G.weapon==='bow')) attack();
 
   if(G.swordCd>0)G.swordCd--; if(G.bowCd>0)G.bowCd--;
   if(player.swing>0)player.swing--; if(player.iFrame>0)player.iFrame--;
@@ -583,20 +638,32 @@ function update(){
     for(const o of enemies){ if(o===e||o.dead)continue; const ox=e.x-o.x,oy=e.y-o.y,od=Math.hypot(ox,oy); if(od<e.r+o.r&&od>0){ e.x+=ox/od*1.2; e.y+=oy/od*1.2; } }
     clampTerrain(e,false);   // ров/оазис не перейти
     if(e.hit>0)e.hit--;
-    if(!e.ranged && d<e.r+player.r+2) playerHit(9);
-    if(e.boss && d<e.r+player.r+4) playerHit(16);
+    const planeSafe = G.modern && G.vehicle==='plane';   // самолёт летит — пехота не достаёт
+    if(!e.ranged && d<e.r+player.r+2 && !planeSafe) playerHit(e.modern?12:9);
+    if(e.boss && !e.modern && d<e.r+player.r+4) playerHit(16);
     if(e.ranged){ e.shootCd--;
-      if(e.boss && e.shootCd===20 && Math.random()<0.5) e.charge=26;
-      if(e.shootCd<=0 && d<380){ e.shootCd=e.boss?42:78; const a=Math.atan2(dy,dx);
-        const spread=e.boss?[-0.22,-0.07,0.07,0.22]:[0];
-        for(const s of spread) arrows.push({x:e.x+Math.cos(a)*e.r,y:e.y+Math.sin(a)*e.r,vx:Math.cos(a+s)*5.4,vy:Math.sin(a+s)*5.4,life:130,mine:false,dmg:e.boss?9:7}); } }
+      if(e.boss && !e.modern && e.shootCd===20 && Math.random()<0.5) e.charge=26;
+      if(e.shootCd<=0 && d<420){
+        if(e.tank){ e.shootCd=e.boss?38:88; const a=Math.atan2(dy,dx);   // вражеский снаряд с взрывом
+          arrows.push({x:e.x+Math.cos(a)*e.r,y:e.y+Math.sin(a)*e.r,vx:Math.cos(a)*4.8,vy:Math.sin(a)*4.8,life:150,mine:false,dmg:14,aoe:34,kind:'shell'}); }
+        else { e.shootCd=e.boss?42:78; const a=Math.atan2(dy,dx);
+          const spread=e.boss?[-0.22,-0.07,0.07,0.22]:[0];
+          for(const s of spread) arrows.push({x:e.x+Math.cos(a)*e.r,y:e.y+Math.sin(a)*e.r,vx:Math.cos(a+s)*5.4,vy:Math.sin(a+s)*5.4,life:130,mine:false,dmg:e.boss?9:7}); }
+      } }
   }
   enemies=enemies.filter(e=>!e.dead);
 
   for(const ar of arrows){ ar.x+=ar.vx; ar.y+=ar.vy; ar.life--;
-    if(ar.mine){ for(const e of enemies){ if(e.dead)continue; if(Math.hypot(e.x-ar.x,e.y-ar.y)<e.r+3){ damageEnemy(e,ar.dmg,Math.atan2(ar.vy,ar.vx)); ar.life=0; break; } } }
-    else if(Math.hypot(player.x-ar.x,player.y-ar.y)<player.r+3){ playerHit(ar.dmg); ar.life=0; }
-    if(ar.x<-40||ar.x>W+40||ar.y<-40||ar.y>H+40) ar.life=0; }
+    if(ar.mine){
+      let hit=null; for(const e of enemies){ if(e.dead)continue; if(Math.hypot(e.x-ar.x,e.y-ar.y)<e.r+(ar.aoe?4:3)){ hit=e; break; } }
+      if(ar.aoe){ if(hit || ar.life<=0){ explode(ar.x,ar.y,ar.aoe,ar.dmg,true); ar.life=0; } }
+      else if(hit){ damageEnemy(hit,ar.dmg,Math.atan2(ar.vy,ar.vx)); ar.life=0; }
+    } else {
+      const hitP = Math.hypot(player.x-ar.x,player.y-ar.y)<player.r+3;
+      if(ar.aoe){ if(hitP || ar.life<=0){ explode(ar.x,ar.y,ar.aoe,ar.dmg,false); ar.life=0; } }
+      else if(hitP){ playerHit(ar.dmg); ar.life=0; }
+    }
+    if(ar.x<-60||ar.x>W+60||ar.y<-60||ar.y>H+60) ar.life=0; }
   arrows=arrows.filter(a=>a.life>0);
 
   for(const p of pickups){ p.life--; const d=Math.hypot(player.x-p.x,player.y-p.y);
@@ -615,7 +682,7 @@ function update(){
 function addScore(){ document.getElementById('score').textContent=G.score; }
 function updHud(){
   document.getElementById('hpfill').style.width=Math.max(0,player.hp/player.hpMax*100)+'%';
-  document.getElementById('arrows').textContent=G.arrows;
+  document.getElementById('arrows').textContent = G.modern ? '∞' : G.arrows;
   document.getElementById('coins').textContent=UP.coins;
   document.getElementById('score').textContent=G.score;
 }
@@ -639,8 +706,49 @@ function drawFighter(e,pal,scale,plume,lift){
   if(e.hp<e.hpMax && !e.boss){ ctx.fillStyle='#000'; ctx.fillRect(e.x-e.r,e.y-lift-scale*8,e.r*2,4);
     ctx.fillStyle='#e04a4a'; ctx.fillRect(e.x-e.r,e.y-lift-scale*8,e.r*2*(e.hp/e.hpMax),4); }
 }
+function drawVehicle(){
+  const p=player, a=p.aim;
+  const blink=p.iFrame>0 && Math.floor(p.iFrame/4)%2===0; ctx.globalAlpha=blink?0.5:1;
+  if(G.vehicle==='plane'){
+    ctx.fillStyle='#00000022'; ctx.beginPath(); ctx.ellipse(p.x,p.y+24,17,6,0,0,7); ctx.fill();   // тень — летит высоко
+    ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(a+Math.PI/2);
+    ctx.fillStyle='#5b6b48'; ctx.fillRect(-4,-19,8,36);                  // фюзеляж
+    ctx.fillStyle='#6f8158'; ctx.fillRect(-22,-3,44,9);                  // крылья
+    ctx.fillRect(-10,13,20,6);                                          // хвост
+    ctx.fillStyle='#243019'; ctx.fillRect(-3,-19,6,7);                   // кабина
+    ctx.fillStyle='#c7d0b8'; for(const s of [-1,1]){ ctx.beginPath(); ctx.arc(0,-19,3,0,7); ctx.fill(); } // винт
+    ctx.restore();
+  } else if(G.vehicle==='cannon'){
+    ctx.fillStyle='#00000030'; ctx.beginPath(); ctx.ellipse(p.x,p.y+9,22,7,0,0,7); ctx.fill();
+    ctx.fillStyle='#3b3b2c'; ctx.beginPath(); ctx.arc(p.x-11,p.y+7,8,0,7); ctx.fill(); ctx.beginPath(); ctx.arc(p.x+11,p.y+7,8,0,7); ctx.fill(); // колёса
+    ctx.fillStyle='#54543f'; ctx.beginPath(); ctx.arc(p.x,p.y,13,0,7); ctx.fill();      // основание
+    ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(a);
+    ctx.fillStyle='#5f5f48'; ctx.fillRect(0,-5,44,10); ctx.fillStyle='#2c2c22'; ctx.fillRect(40,-6,7,12); ctx.restore();  // ствол
+  } else { // танк
+    ctx.fillStyle='#00000030'; ctx.beginPath(); ctx.ellipse(p.x,p.y+12,23,8,0,0,7); ctx.fill();
+    ctx.fillStyle='#232318'; ctx.fillRect(p.x-22,p.y-14,7,28); ctx.fillRect(p.x+15,p.y-14,7,28);   // гусеницы
+    ctx.fillStyle='#4a5c39'; ctx.fillRect(p.x-16,p.y-11,32,22);                                     // корпус
+    ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(a);
+    ctx.fillStyle='#5c6e46'; ctx.beginPath(); ctx.arc(0,0,11,0,7); ctx.fill();                      // башня
+    ctx.fillStyle='#38442e'; ctx.fillRect(6,-4,32,8); ctx.restore();                                // ствол
+  }
+  ctx.globalAlpha=1;
+}
+function drawEnemyTank(e){
+  const a=Math.atan2(player.y-e.y,player.x-e.x), s=e.boss?1.5:1, F=e.hit>0;
+  ctx.fillStyle='#00000030'; ctx.beginPath(); ctx.ellipse(e.x,e.y+12*s,23*s,8*s,0,0,7); ctx.fill();
+  ctx.fillStyle='#1e1e16'; ctx.fillRect(e.x-22*s,e.y-14*s,7*s,28*s); ctx.fillRect(e.x+15*s,e.y-14*s,7*s,28*s);
+  ctx.fillStyle=F?'#fff':(e.boss?'#6b2b2b':'#5a3030'); ctx.fillRect(e.x-16*s,e.y-11*s,32*s,22*s);
+  ctx.save(); ctx.translate(e.x,e.y); ctx.rotate(a);
+  ctx.fillStyle=F?'#fff':(e.boss?'#8a3b3b':'#7a3b3b'); ctx.beginPath(); ctx.arc(0,0,11*s,0,7); ctx.fill();
+  ctx.fillStyle='#2a1818'; ctx.fillRect(6*s,-4*s,32*s,8*s); ctx.restore();
+  if(e.boss){ ctx.fillStyle='#e8c979'; ctx.fillRect(e.x-2,e.y-20*s,4,7); }
+  if(e.hp<e.hpMax && !e.boss){ ctx.fillStyle='#000'; ctx.fillRect(e.x-20*s,e.y-20*s,40*s,4);
+    ctx.fillStyle='#e04a4a'; ctx.fillRect(e.x-20*s,e.y-20*s,40*s*(e.hp/e.hpMax),4); }
+}
 function drawPlayer(){
   const p=player;
+  if(G.modern){ drawVehicle(); return; }
   const jz = p.jump>0 ? Math.sin(((30-p.jump)/30)*Math.PI)*24 : 0;   // высота прыжка
   const sr = 11*(1-jz/60);
   if(p.swimming && jz<1){                                             // плывём: рябь вместо тени
@@ -783,11 +891,17 @@ function draw(){
   // сортировка по y для глубины
   const drawn=enemies.slice().sort((a,c)=>a.y-c.y);
   for(const e of drawn){
+    if(e.modern && e.tank){ drawEnemyTank(e); continue; }
+    if(e.modern){ drawFighter(e, e.ranged?PAL_RANGED:PAL_MELEE, 2.3); continue; }
     if(e.rider) drawHorse(e.x, e.y+(e.boss?8:4), e.boss?2.3:1.5, e.facing);
     if(e.boss) drawFighter(e,PAL_BOSS,4.4,true, e.rider?40:0);
     else drawFighter(e, e.ranged?PAL_RANGED:PAL_MELEE, 2.3, false, e.rider?18:0);
   }
-  for(const ar of arrows){ ctx.strokeStyle=ar.mine?'#3a2a12':'#5a1f1f'; ctx.lineWidth=ar.mine?3:2.5;
+  for(const ar of arrows){
+    if(ar.kind==='shell'){ ctx.fillStyle='#ffae3a'; ctx.beginPath(); ctx.arc(ar.x-ar.vx*0.5,ar.y-ar.vy*0.5,2.4,0,7); ctx.fill();
+      ctx.fillStyle=ar.mine?'#3a3a2a':'#4a2020'; ctx.beginPath(); ctx.arc(ar.x,ar.y,4,0,7); ctx.fill(); continue; }
+    if(ar.kind==='bullet'){ ctx.strokeStyle='#ffe58a'; ctx.lineWidth=2.4; ctx.beginPath(); ctx.moveTo(ar.x,ar.y); ctx.lineTo(ar.x-ar.vx*1.2,ar.y-ar.vy*1.2); ctx.stroke(); continue; }
+    ctx.strokeStyle=ar.mine?'#3a2a12':'#5a1f1f'; ctx.lineWidth=ar.mine?3:2.5;
     ctx.beginPath(); ctx.moveTo(ar.x,ar.y); ctx.lineTo(ar.x-ar.vx*1.6,ar.y-ar.vy*1.6); ctx.stroke();
     ctx.fillStyle=ar.mine?'#e8c979':'#c05a5a'; ctx.beginPath(); ctx.arc(ar.x,ar.y,2.2,0,7); ctx.fill(); }
   drawPlayer();
@@ -827,6 +941,7 @@ function openIntro(i){ const b=BATTLES[i]; G.battleIdx=i; G.retry=false;
   document.getElementById('in-desc').textContent=b.desc;
   document.getElementById('in-facts').innerHTML=b.facts.map(f=>'• '+f).join('<br>');
   document.getElementById('in-goal').textContent='🎯 Задача: '+b.goal;
+  document.getElementById('btn-fight').textContent = b.modern ? 'В бой!' : 'В бой — بسم الله';
   showScreen('intro'); }
 
 document.getElementById('btn-start').onclick=()=>openIntro(0);
