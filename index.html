@@ -302,7 +302,7 @@ const BATTLE_EXTRA = {
   badr:   { riderRatio:0.12 },
   uhud:   { terrain:'mountain', riderRatio:0.35, bossRider:true },
   khandaq:{ terrain:'trench',   riderRatio:0.0 },
-  khaybar:{ terrain:'oasis',    riderRatio:0.15 },
+  khaybar:{ terrain:'oasis',    fort:true, riderRatio:0.15 },
   mutah:  { riderRatio:0.30 },
   fath:   { riderRatio:0.10 },
   hunayn: { terrain:'valley', riderRatio:0.30 },
@@ -311,10 +311,10 @@ const BATTLE_EXTRA = {
   yarmuk: { terrain:'river',    riderRatio:0.40, bossRider:true },
   qadisiyyah:{ terrain:'river', riderRatio:0.30, bossRider:true, elephantRatio:0.16 },
   quds:   { riderRatio:0.12 },
-  misr:   { terrain:'oasis',    riderRatio:0.25 },
+  misr:   { terrain:'oasis',    fort:true, riderRatio:0.25 },
   nahavand:{ terrain:'valley',  riderRatio:0.30, bossRider:true, elephantRatio:0.10 },
   guadalete:{ terrain:'river',  riderRatio:0.35, bossRider:true },
-  qust:   { terrain:'siege',    riderRatio:0.15 },
+  qust:   { fort:true,          riderRatio:0.15 },
   talas:  { terrain:'river',    riderRatio:0.40, bossRider:true },
 };
 for(const b of BATTLES) Object.assign(b, BATTLE_EXTRA[b.key]||{});
@@ -463,7 +463,7 @@ function attack(){
     for(const e of enemies){ const d=Math.hypot(e.x-player.x,e.y-player.y);
       if(d < 66){ const a=Math.atan2(e.y-player.y,e.x-player.x);
         if(Math.abs(normAng(a-player.aim))<1.25) damageEnemy(e, G.swordDmg, a); } }
-    const t=G.terrain; if(t&&t.type==='siege'&&!t.open && Math.hypot(player.x-(t.gateX0+t.gateX1)/2, player.y-(t.wallY+t.wallH))<78) damageGate(G.swordDmg);
+    const t=G.fort; if(t&&!t.open && Math.hypot(player.x-(t.gateX0+t.gateX1)/2, player.y-(t.wallY+t.wallH))<78) damageGate(G.swordDmg);
     G.shake=Math.max(G.shake,4);
   } else {
     if(G.bowCd>0||G.arrows<=0) return; G.bowCd=17; G.arrows--; updHud();
@@ -496,13 +496,13 @@ function killEnemy(e){
   }
 }
 function dropPickup(x,y,type,val){
-  const t=G.terrain;   // добыча из-за препятствия переносится на сторону игрока, чтобы её можно было собрать
+  const t=G.terrain, f=G.fort;   // добыча из-за препятствия переносится на сторону игрока, чтобы её можно было собрать
   if(t && t.type==='trench' && y < t.bottom){ x=Math.max(24,Math.min(W-24,x)); y=t.bottom+22+Math.random()*46; }
-  else if(t && t.type==='siege' && y < t.wallY+t.wallH){ x=Math.max(24,Math.min(W-24,x)); y=t.wallY+t.wallH+22+Math.random()*46; }
+  else if(f && y < f.wallY+f.wallH){ x=Math.max(24,Math.min(W-24,x)); y=f.wallY+f.wallH+22+Math.random()*46; }
   pickups.push({x,y,type,val:val||1,ph:Math.random()*6.28,life:600});
 }
 function damageGate(d){
-  const t=G.terrain; if(!t||t.type!=='siege'||t.open) return;
+  const t=G.fort; if(!t||t.open) return;
   t.gateHp-=d; const gc=(t.gateX0+t.gateX1)/2; G.shake=Math.max(G.shake,3);
   for(let i=0;i<5;i++) particles.push(pt(gc+(Math.random()-.5)*60, t.wallY+12, Math.random()*7, 2, '#6b4c1e', 16));
   if(t.gateHp<=0){ t.open=true; showMsg("🚪 Ворота проломлены!",100);
@@ -511,8 +511,8 @@ function damageGate(d){
 
 function spawnPos(){
   const t=G.terrain; let x,y;
+  if(G.fort){ return {x:Math.random()*W, y:-30}; }                             // защитники — за стеной (сверху)
   if(t && t.type==='trench'){ x=Math.random()*W; y=-30; return {x,y}; }        // только сверху, за рвом
-  if(t && t.type==='siege'){ x=Math.random()*W; y=-30; return {x,y}; }         // защитники — за стеной (сверху)
   if(t && t.type==='valley'){ x=t.left+8+Math.random()*(t.right-t.left-16);    // в узком коридоне: спереди и сзади
     y = Math.random()<0.68 ? -30 : H+30; return {x,y}; }
   if(t && t.type==='river'){                                                    // с суши (восточнее реки), не из воды
@@ -564,7 +564,17 @@ function setupTerrain(b){
   else if(b.terrain==='oasis'){ G.terrain={type:'oasis', x:W*0.30, y:H*0.40, rx:Math.min(150,W*0.16), ry:80}; }
   else if(b.terrain==='valley'){ const half=Math.min(W*0.24, 240); G.terrain={type:'valley', left:W/2-half, right:W/2+half}; }
   else if(b.terrain==='river'){ const x0=W*0.07, w=Math.min(190, W*0.22); G.terrain={type:'river', x0, x1:x0+w}; }
-  else if(b.terrain==='siege'){ const gw=Math.min(64, W*0.08); G.terrain={type:'siege', wallY:H*0.24, wallH:24, gateX0:W/2-gw, gateX1:W/2+gw, gateHp:70, gateMax:70, open:false}; }
+}
+function setupFort(b){
+  if(!b.fort){ G.fort=null; return; }
+  const gw=Math.min(64, W*0.08);
+  G.fort={ wallY:H*0.22, wallH:24, gateX0:W/2-gw, gateX1:W/2+gw, gateHp:70, gateMax:70, open:false };
+}
+function clampFort(o,isPlayer){
+  const t=G.fort; if(!t) return;
+  if(t.open && o.x>t.gateX0 && o.x<t.gateX1) return;        // сквозь пролом можно пройти
+  if(isPlayer){ if(o.y < t.wallY+t.wallH+o.r) o.y = t.wallY+t.wallH+o.r; }   // игрок — южнее стены
+  else { if(o.y > t.wallY-o.r) o.y = t.wallY-o.r; }                          // защитники — севернее стены
 }
 function clampTerrain(o, isPlayer){
   const t=G.terrain; if(!t) return;
@@ -579,11 +589,6 @@ function clampTerrain(o, isPlayer){
     o.x=Math.max(t.left+o.r, Math.min(t.right-o.r, o.x));  // зажаты в узком коридоне между гор
   } else if(t.type==='river'){
     if(!isPlayer) o.x=Math.max(o.x, t.x1+o.r);   // враги не заходят в реку; игрок — может плыть
-  } else if(t.type==='siege'){
-    const inGate = t.open && o.x>t.gateX0 && o.x<t.gateX1;   // сквозь пролом можно пройти
-    if(inGate) return;
-    if(isPlayer){ if(o.y < t.wallY+t.wallH+o.r) o.y = t.wallY+t.wallH+o.r; }   // игрок — южнее стены
-    else { if(o.y > t.wallY-o.r) o.y = t.wallY-o.r; }                          // защитники — севернее стены
   }
 }
 
@@ -592,15 +597,15 @@ function startBattle(idx){
   G.wave=0; G.waveMax=b.waves; G.weapon='sword'; G.bossDone=false; G.boss=null; G.coinsThisRun=0;
   // применяем прокачку
   G.swordDmg=3+UP.sword; G.bowDmg=2+UP.bow; G.arrowMax=30+UP.quiver*10;
-  G.arrows = (b.terrain==='trench'||b.terrain==='siege') ? G.arrowMax+40 : G.arrowMax;   // ров/осада — стрельба основная
+  G.arrows = (b.terrain==='trench'||b.fort) ? G.arrowMax+40 : G.arrowMax;   // ров/осада — стрельба основная
   G.swordCd=G.bowCd=0; G.arrowRegen=0;
   enemies=[]; arrows=[]; particles=[]; pickups=[];
   player.hpMax=100+UP.armor*20; player.hp=player.hpMax; player.speed=3.1*(1+UP.speed*0.08);
   player.iFrame=0; player.swing=0; player.jump=0; player.jumpCd=0; player.swimming=false;
   G.modern=!!b.modern;
   if(G.modern){ G.vehicle='tank'; player.hpMax=220+UP.armor*30; player.hp=player.hpMax; player.speed=2.6*(1+UP.speed*0.06); }
-  setupTerrain(b);
-  player.x=W/2; player.y = (G.terrain && G.terrain.type==='trench') ? H*0.72 : H*0.62;
+  setupTerrain(b); setupFort(b);
+  player.x=W/2; player.y = (G.terrain && G.terrain.type==='trench') ? H*0.72 : G.fort ? H*0.66 : H*0.62;
   document.getElementById('battle-name').textContent=b.name;
   document.getElementById('wave-max').textContent=b.waves;
   document.getElementById('bossbar').classList.remove('on');
@@ -687,7 +692,7 @@ function update(){
   player.x=Math.max(20,Math.min(W-20,player.x+mx*psp));
   player.y=Math.max(20,Math.min(H-20,player.y+my*psp));
   if(player.swimming) player.y=Math.min(H-20, player.y+0.7);   // течение сносит вниз
-  clampTerrain(player,true);
+  clampTerrain(player,true); clampFort(player,true);
 
   if(IS_TOUCH){ let best=null,bd=1e9; for(const e of enemies){ const d=Math.hypot(e.x-player.x,e.y-player.y); if(d<bd){bd=d;best=e;} }
     if(best) player.aim=Math.atan2(best.y-player.y,best.x-player.x); else if(ml>0.1) player.aim=Math.atan2(my,mx);
@@ -699,7 +704,7 @@ function update(){
   if(player.swing>0)player.swing--; if(player.iFrame>0)player.iFrame--;
   if(player.jump>0)player.jump--; if(player.jumpCd>0)player.jumpCd--;
   if(G.arrows<G.arrowMax){ G.arrowRegen=(G.arrowRegen||0)+1;   // медленное пополнение стрел, чтобы не застрять
-    const rate=(G.terrain&&(G.terrain.type==='trench'||G.terrain.type==='siege'))?35:80;
+    const rate=((G.terrain&&G.terrain.type==='trench')||G.fort)?35:80;
     if(G.arrowRegen>=rate){ G.arrowRegen=0; G.arrows++; updHud(); } }
   if(G.msgT>0){ G.msgT--; if(G.msgT===0) document.getElementById('center-msg').style.opacity=0; }
   if(G.shake>0.3)G.shake*=0.85;
@@ -718,7 +723,7 @@ function update(){
     else if(d>desired+6){ e.x+=dx/d*e.speed; e.y+=dy/d*e.speed; e.bob+=0.2; }
     else if(e.ranged && d<desired-30){ e.x-=dx/d*e.speed*0.7; e.y-=dy/d*e.speed*0.7; }
     for(const o of enemies){ if(o===e||o.dead)continue; const ox=e.x-o.x,oy=e.y-o.y,od=Math.hypot(ox,oy); if(od<e.r+o.r&&od>0){ e.x+=ox/od*1.2; e.y+=oy/od*1.2; } }
-    clampTerrain(e,false);   // ров/оазис не перейти
+    clampTerrain(e,false); clampFort(e,false);   // ров/оазис/стена не перейти
     if(e.hit>0)e.hit--;
     const planeSafe = G.modern && G.vehicle==='plane';   // самолёт летит — пехота не достаёт
     if(!e.ranged && d<e.r+player.r+2 && !planeSafe) playerHit(e.elephant?20:e.modern?12:9);
@@ -739,8 +744,8 @@ function update(){
 
   for(const ar of arrows){ ar.x+=ar.vx; ar.y+=ar.vy; ar.life--;
     if(ar.mine){
-      const t=G.terrain;   // выстрелы по воротам крепости
-      if(t&&t.type==='siege'&&!t.open && ar.x>t.gateX0&&ar.x<t.gateX1 && ar.y<t.wallY+t.wallH+6 && ar.y>t.wallY-12){ damageGate(ar.dmg); ar.life=0; continue; }
+      const t=G.fort;   // выстрелы по воротам крепости
+      if(t&&!t.open && ar.x>t.gateX0&&ar.x<t.gateX1 && ar.y<t.wallY+t.wallH+6 && ar.y>t.wallY-12){ damageGate(ar.dmg); ar.life=0; continue; }
       let hit=null; for(const e of enemies){ if(e.dead)continue; if(Math.hypot(e.x-ar.x,e.y-ar.y)<e.r+(ar.aoe?4:3)){ hit=e; break; } }
       if(ar.aoe){ if(hit || ar.life<=0){ explode(ar.x,ar.y,ar.aoe,ar.dmg,true); ar.life=0; } }
       else if(hit){ damageEnemy(hit,ar.dmg,Math.atan2(ar.vy,ar.vx)); ar.life=0; }
@@ -936,7 +941,6 @@ function drawTerrain(){
   } else if(t.type==='mountain'){ drawMountain(); }
   else if(t.type==='valley'){ drawValley(t); }
   else if(t.type==='river'){ drawRiver(t); }
-  else if(t.type==='siege'){ drawSiege(t); }
   else if(t.type==='oasis'){
     ctx.fillStyle='#6b5a3a'; ctx.beginPath(); ctx.ellipse(t.x,t.y,t.rx+10,t.ry+8,0,0,7); ctx.fill(); // берег
     ctx.fillStyle='#3f7a8a'; ctx.beginPath(); ctx.ellipse(t.x,t.y,t.rx,t.ry,0,0,7); ctx.fill();
@@ -944,7 +948,8 @@ function drawTerrain(){
     ctx.fillStyle='rgba(255,255,255,.22)'; ctx.beginPath(); ctx.ellipse(t.x-t.rx*0.3,t.y-t.ry*0.32,t.rx*0.28,t.ry*0.16,0,0,7); ctx.fill();
   }
 }
-function drawSiege(t){
+function drawFort(){
+  const t=G.fort; if(!t) return;
   const y=t.wallY, h=t.wallH, gc=(t.gateX0+t.gateX1)/2, gw=t.gateX1-t.gateX0;
   ctx.fillStyle='#7b7b71'; ctx.fillRect(0,y,W,h);                       // стена
   ctx.fillStyle='#63635b'; ctx.fillRect(0,y+h-6,W,6);                   // тень основания
@@ -1046,7 +1051,7 @@ function draw(){
     for(let i=0;i<4;i++){ ctx.beginPath(); const yy=H*(0.3+i*0.18); ctx.moveTo(0,yy);
       for(let x=0;x<=W;x+=40) ctx.lineTo(x,yy+Math.sin((x*0.01)+i)*14); ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.fill(); }
   }
-  drawTerrain();
+  drawTerrain(); drawFort();
   for(const p of props){ if(p.type==='palm')drawPalm(p.x,p.y,p.s); else if(p.type==='rock')drawRock(p.x,p.y,p.s);
     else if(p.type==='ruin')drawRuin(p.x,p.y,p.s); else if(p.type==='rubble')drawRubble(p.x,p.y,p.s); else if(p.type==='fire')drawFire(p.x,p.y,p.s,p.seed); }
   for(const p of pickups) drawPickup(p);
