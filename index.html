@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Mainkraff — песочница из блоков</title>
+<style>
+  :root {
+    --panel: #2b2b33;
+    --panel-light: #3a3a44;
+    --border: #14141a;
+    --text: #eaeaf0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: #1b1b21;
+    color: var(--text);
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #game {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  /* Верхняя панель */
+  #topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: linear-gradient(180deg, rgba(20,20,26,0.92), rgba(20,20,26,0.55));
+    backdrop-filter: blur(4px);
+    z-index: 10;
+    user-select: none;
+  }
+  #topbar h1 {
+    font-size: 18px;
+    letter-spacing: 1px;
+    font-weight: 800;
+  }
+  #topbar h1 span { color: #7ad67a; }
+  .spacer { flex: 1; }
+  .btn {
+    background: var(--panel);
+    color: var(--text);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .btn:hover { background: var(--panel-light); }
+  .btn:active { transform: translateY(1px); }
+
+  /* Панель блоков (хотбар) */
+  #hotbar {
+    position: fixed;
+    bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    background: rgba(20,20,26,0.85);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    z-index: 10;
+    user-select: none;
+  }
+  .slot {
+    width: 46px; height: 46px;
+    border: 3px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    position: relative;
+    transition: transform .1s;
+  }
+  .slot:hover { transform: translateY(-3px); }
+  .slot.active {
+    border-color: #fff;
+    box-shadow: 0 0 0 2px #000, 0 6px 14px rgba(0,0,0,.4);
+  }
+  .slot .num {
+    position: absolute;
+    top: -8px; left: -6px;
+    font-size: 11px;
+    background: #000;
+    color: #fff;
+    border-radius: 5px;
+    padding: 0 4px;
+    opacity: .8;
+  }
+
+  #hint {
+    position: fixed;
+    bottom: 74px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 13px;
+    color: #b8b8c4;
+    background: rgba(0,0,0,.4);
+    padding: 5px 12px;
+    border-radius: 20px;
+    z-index: 10;
+    white-space: nowrap;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="topbar">
+    <h1>MAIN<span>KRAFF</span></h1>
+    <div class="spacer"></div>
+    <button class="btn" id="saveBtn">💾 Сохранить</button>
+    <button class="btn" id="clearBtn">🗑 Очистить</button>
+  </div>
+
+  <div id="hint">ЛКМ — поставить блок · ПКМ — сломать · Колёсико/цифры — выбрать блок</div>
+
+  <div id="hotbar"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ----- Настройки мира -----
+  const TILE = 40;              // размер блока в пикселях
+  const WORLD_W = 60;           // ширина мира в блоках
+  const WORLD_H = 34;           // высота мира в блоках
+  const GROUND_LEVEL = 20;      // с какого ряда начинается земля
+
+  // Типы блоков: 0 — воздух (пусто)
+  const BLOCKS = [
+    { id: 1, name: "Трава",   top: "#7ec850", body: "#6aa84f" },
+    { id: 2, name: "Земля",   top: "#8a5a3c", body: "#6f4530" },
+    { id: 3, name: "Камень",  top: "#9aa0a6", body: "#7c8288" },
+    { id: 4, name: "Дерево",  top: "#a9793f", body: "#8a5f2e" },
+    { id: 5, name: "Листва",  top: "#4e9a4e", body: "#3e7d3e" },
+    { id: 6, name: "Песок",   top: "#e6d59a", body: "#d8c37e" },
+    { id: 7, name: "Вода",    top: "#4aa3e0", body: "#3a86c4" },
+    { id: 8, name: "Кирпич",  top: "#b5533f", body: "#963f2f" },
+  ];
+  const blockById = {};
+  BLOCKS.forEach(b => blockById[b.id] = b);
+
+  // ----- Состояние -----
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  let grid = [];                // grid[y][x] = id блока (0 = пусто)
+  let selected = 1;             // выбранный блок
+  let camX = 0, camY = 0;       // камера (сдвиг мира)
+  const STORAGE_KEY = "mainkraff-world-v1";
+
+  // ----- Генерация мира по умолчанию -----
+  function generateWorld() {
+    grid = [];
+    for (let y = 0; y < WORLD_H; y++) {
+      const row = new Array(WORLD_W).fill(0);
+      for (let x = 0; x < WORLD_W; x++) {
+        if (y === GROUND_LEVEL) row[x] = 1;              // трава сверху
+        else if (y > GROUND_LEVEL && y < GROUND_LEVEL + 4) row[x] = 2; // земля
+        else if (y >= GROUND_LEVEL + 4) row[x] = 3;      // камень глубже
+      }
+      grid.push(row);
+    }
+    // Пара простых деревьев
+    plantTree(10);
+    plantTree(24);
+    plantTree(42);
+  }
+
+  function plantTree(x) {
+    if (x < 1 || x >= WORLD_W - 1) return;
+    const base = GROUND_LEVEL - 1;
+    for (let i = 0; i < 3; i++) grid[base - i][x] = 4;   // ствол
+    const top = base - 3;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const ny = top + dy, nx = x + dx;
+        if (grid[ny] && grid[ny][nx] === 0) grid[ny][nx] = 5;
+      }
+    if (grid[top - 1]) grid[top - 1][x] = 5;
+  }
+
+  // ----- Отрисовка -----
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    clampCamera();
+    draw();
+  }
+
+  function clampCamera() {
+    const maxX = WORLD_W * TILE - canvas.width;
+    const maxY = WORLD_H * TILE - canvas.height;
+    camX = Math.max(0, Math.min(camX, Math.max(0, maxX)));
+    camY = Math.max(0, Math.min(camY, Math.max(0, maxY)));
+  }
+
+  function draw() {
+    // Небо (градиент)
+    const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    sky.addColorStop(0, "#8ec5ff");
+    sky.addColorStop(1, "#cfeaff");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Видимый диапазон блоков
+    const x0 = Math.max(0, Math.floor(camX / TILE));
+    const y0 = Math.max(0, Math.floor(camY / TILE));
+    const x1 = Math.min(WORLD_W, Math.ceil((camX + canvas.width) / TILE));
+    const y1 = Math.min(WORLD_H, Math.ceil((camY + canvas.height) / TILE));
+
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const id = grid[y][x];
+        if (!id) continue;
+        drawBlock(x, y, blockById[id]);
+      }
+    }
+
+    // Сетка (лёгкая)
+    ctx.strokeStyle = "rgba(0,0,0,0.06)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = x0; x <= x1; x++) {
+      const px = x * TILE - camX;
+      ctx.moveTo(px, 0); ctx.lineTo(px, canvas.height);
+    }
+    for (let y = y0; y <= y1; y++) {
+      const py = y * TILE - camY;
+      ctx.moveTo(0, py); ctx.lineTo(canvas.width, py);
+    }
+    ctx.stroke();
+  }
+
+  function drawBlock(x, y, b) {
+    const px = x * TILE - camX;
+    const py = y * TILE - camY;
+    ctx.fillStyle = b.body;
+    ctx.fillRect(px, py, TILE, TILE);
+    // «Крышка» сверху для объёма
+    ctx.fillStyle = b.top;
+    ctx.fillRect(px, py, TILE, Math.floor(TILE * 0.28));
+    // Контур
+    ctx.strokeStyle = "rgba(0,0,0,0.18)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(px + 0.5, py + 0.5, TILE - 1, TILE - 1);
+  }
+
+  // ----- Работа с блоками -----
+  function screenToCell(clientX, clientY) {
+    const gx = Math.floor((clientX + camX) / TILE);
+    const gy = Math.floor((clientY + camY) / TILE);
+    return { gx, gy };
+  }
+
+  function placeBlock(clientX, clientY) {
+    const { gx, gy } = screenToCell(clientX, clientY);
+    if (grid[gy] && gx >= 0 && gx < WORLD_W) {
+      grid[gy][gx] = selected;
+      draw();
+    }
+  }
+
+  function removeBlock(clientX, clientY) {
+    const { gx, gy } = screenToCell(clientX, clientY);
+    if (grid[gy] && gx >= 0 && gx < WORLD_W) {
+      grid[gy][gx] = 0;
+      draw();
+    }
+  }
+
+  // ----- Ввод: мышь -----
+  let painting = 0; // 0 нет, 1 ставим, 2 ломаем
+
+  canvas.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    if (e.button === 0) { painting = 1; placeBlock(e.clientX, e.clientY); }
+    else if (e.button === 2) { painting = 2; removeBlock(e.clientX, e.clientY); }
+  });
+  canvas.addEventListener("mousemove", (e) => {
+    if (painting === 1) placeBlock(e.clientX, e.clientY);
+    else if (painting === 2) removeBlock(e.clientX, e.clientY);
+  });
+  window.addEventListener("mouseup", () => { painting = 0; });
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  // Прокрутка колёсиком — смена блока
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const dir = e.deltaY > 0 ? 1 : -1;
+    let idx = BLOCKS.findIndex(b => b.id === selected);
+    idx = (idx + dir + BLOCKS.length) % BLOCKS.length;
+    setSelected(BLOCKS[idx].id);
+  }, { passive: false });
+
+  // ----- Ввод: клавиатура -----
+  window.addEventListener("keydown", (e) => {
+    if (e.key >= "1" && e.key <= "8") {
+      const n = parseInt(e.key, 10);
+      if (BLOCKS[n - 1]) setSelected(BLOCKS[n - 1].id);
+    }
+    // Стрелки — двигать камеру
+    const step = TILE;
+    if (e.key === "ArrowLeft")  { camX -= step; clampCamera(); draw(); }
+    if (e.key === "ArrowRight") { camX += step; clampCamera(); draw(); }
+    if (e.key === "ArrowUp")    { camY -= step; clampCamera(); draw(); }
+    if (e.key === "ArrowDown")  { camY += step; clampCamera(); draw(); }
+  });
+
+  // ----- Ввод: тач (мобильные) -----
+  canvas.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    placeBlock(t.clientX, t.clientY);
+  }, { passive: false });
+  canvas.addEventListener("touchmove", (e) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    placeBlock(t.clientX, t.clientY);
+  }, { passive: false });
+
+  // ----- Хотбар -----
+  const hotbar = document.getElementById("hotbar");
+  function buildHotbar() {
+    hotbar.innerHTML = "";
+    BLOCKS.forEach((b, i) => {
+      const slot = document.createElement("div");
+      slot.className = "slot" + (b.id === selected ? " active" : "");
+      slot.title = b.name;
+      slot.style.background = `linear-gradient(180deg, ${b.top} 0 28%, ${b.body} 28% 100%)`;
+      slot.dataset.id = b.id;
+      const num = document.createElement("span");
+      num.className = "num";
+      num.textContent = i + 1;
+      slot.appendChild(num);
+      slot.addEventListener("click", () => setSelected(b.id));
+      hotbar.appendChild(slot);
+    });
+  }
+  function setSelected(id) {
+    selected = id;
+    [...hotbar.children].forEach(s => {
+      s.classList.toggle("active", parseInt(s.dataset.id, 10) === id);
+    });
+  }
+
+  // ----- Сохранение / загрузка -----
+  function saveWorld() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(grid));
+      flash("Мир сохранён ✔");
+    } catch (err) {
+      flash("Не удалось сохранить ✖");
+    }
+  }
+  function loadWorld() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      if (Array.isArray(data) && data.length === WORLD_H) {
+        grid = data;
+        return true;
+      }
+    } catch (err) {}
+    return false;
+  }
+
+  // Небольшое всплывающее уведомление
+  let flashTimer = null;
+  function flash(text) {
+    const hint = document.getElementById("hint");
+    const original = hint.dataset.original || hint.textContent;
+    hint.dataset.original = original;
+    hint.textContent = text;
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { hint.textContent = original; }, 1500);
+  }
+
+  document.getElementById("saveBtn").addEventListener("click", saveWorld);
+  document.getElementById("clearBtn").addEventListener("click", () => {
+    if (confirm("Очистить мир и начать заново?")) {
+      generateWorld();
+      draw();
+      flash("Новый мир создан 🌱");
+    }
+  });
+
+  // ----- Старт -----
+  window.addEventListener("resize", resize);
+  if (!loadWorld()) generateWorld();
+  buildHotbar();
+  resize();
+})();
+</script>
+</body>
+</html>
