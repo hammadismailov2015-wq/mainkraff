@@ -282,10 +282,10 @@ const BATTLES = [
     goal:"Разбей войско у реки и одолей их полководца.",
     waves:5, perWave:9, enemyHp:4, enemySpeed:1.1, tint:"#6f8060", bossName:"Вестготский полководец" },
   { key:"qust", name:"Осада Константинополя", arab:"حصار القسطنطينية", year:"717–718 гг. (99 г. хиджры)",
-    desc:"Поход Омейядов к стенам Константинополя с суши и с моря. Штурм мощных крепостных стен: проломи ворота и сломи оборону.",
-    facts:["Легендарные Феодосиевы стены","Осада и с суши, и с моря","Одна из крупнейших кампаний Омейядов"],
-    goal:"Проломи ворота крепости и одолей коменданта обороны.",
-    waves:5, perWave:9, enemyHp:4, enemySpeed:1.0, tint:"#6a7a86", bossName:"Комендант обороны" },
+    desc:"Поход Омейядов к стенам Константинополя с суши и с моря. Но неприступные Феодосиевы стены выстояли — город взять не удалось, и войско отступило. Редкое крупное поражение.",
+    facts:["Легендарные Феодосиевы стены устояли","Осада была снята — город не пал","Одна из немногих больших неудач Омейядов"],
+    goal:"Держись у неприступных стен. Историю не переписать: осаду взять не удастся — но выстоять можно с честью.",
+    waves:5, perWave:9, enemyHp:4, enemySpeed:1.0, tint:"#6a7a86", bossName:"Комендант обороны", defeat:true, fortHold:true },
   { key:"talas", name:"Битва при Таласе", arab:"معركة نهر طلاس", year:"751 г. (133 г. хиджры)",
     desc:"Столкновение Аббасидского халифата с Танским Китаем у реки Талас в Средней Азии — поворотный момент для всего региона.",
     facts:["Аббасиды против Танской империи","У реки Талас в Средней Азии","По преданию, отсюда бумага пришла на Запад"],
@@ -503,6 +503,8 @@ function dropPickup(x,y,type,val){
 }
 function damageGate(d){
   const t=G.fort; if(!t||t.open) return;
+  if(t.hold){ if(!t._held){ t._held=true; showMsg("🧱 Стены неприступны!",90); }   // Феодосиевы стены не пробить
+    for(let i=0;i<3;i++) particles.push(pt((t.gateX0+t.gateX1)/2+(Math.random()-.5)*40, t.wallY+10, Math.random()*7, 2, '#9a9a90', 12)); return; }
   t.gateHp-=d; const gc=(t.gateX0+t.gateX1)/2; G.shake=Math.max(G.shake,3);
   for(let i=0;i<5;i++) particles.push(pt(gc+(Math.random()-.5)*60, t.wallY+12, Math.random()*7, 2, '#6b4c1e', 16));
   if(t.gateHp<=0){ t.open=true; showMsg("🚪 Ворота проломлены!",100);
@@ -568,7 +570,7 @@ function setupTerrain(b){
 function setupFort(b){
   if(!b.fort){ G.fort=null; return; }
   const gw=Math.min(64, W*0.08);
-  G.fort={ wallY:H*0.22, wallH:24, gateX0:W/2-gw, gateX1:W/2+gw, gateHp:70, gateMax:70, open:false };
+  G.fort={ wallY:H*0.22, wallH:24, gateX0:W/2-gw, gateX1:W/2+gw, gateHp:70, gateMax:70, open:false, hold:!!b.fortHold };
 }
 function clampFort(o,isPlayer){
   const t=G.fort; if(!t) return;
@@ -657,9 +659,16 @@ function winBattle(){
   const b=BATTLES[G.battleIdx];
   if(G.battleIdx+1 > G.unlocked-1){ G.unlocked=Math.min(BATTLES.length,G.battleIdx+2);
     try{ localStorage.setItem('scw_unlocked',G.unlocked); }catch(e){} }
-  document.getElementById('res-title').textContent="Победа! نَصْر";
-  document.getElementById('res-text').innerHTML="Битва «"+b.name+"» пройдена. Счёт: <b>"+G.score+"</b> · собрано за бой: <b class='coinTag'>"+G.coinsThisRun+"</b> 💰";
-  document.getElementById('res-fact').innerHTML="📜 "+b.facts[0]+"<br>🔨 Загляни в кузницу — прокачай снаряжение перед следующей битвой.";
+  const rt=document.getElementById('res-title');
+  if(b.defeat){                                     // историческое поражение (отдельно от побед)
+    rt.textContent="Осада не удалась"; rt.style.color="#c98b6a";
+    document.getElementById('res-text').innerHTML="Феодосиевы стены выстояли — город взять не удалось, и войско с честью отступило. Это редкое поражение, но путь продолжается. Счёт: <b>"+G.score+"</b> · <b class='coinTag'>"+G.coinsThisRun+"</b> 💰";
+    document.getElementById('res-fact').innerHTML="📜 "+b.facts[0]+"<br>🕊️ Поражение — тоже часть истории. Двигаемся дальше.";
+  } else {
+    rt.textContent="Победа! نَصْر"; rt.style.color="";
+    document.getElementById('res-text').innerHTML="Битва «"+b.name+"» пройдена. Счёт: <b>"+G.score+"</b> · собрано за бой: <b class='coinTag'>"+G.coinsThisRun+"</b> 💰";
+    document.getElementById('res-fact').innerHTML="📜 "+b.facts[0]+"<br>🔨 Загляни в кузницу — прокачай снаряжение перед следующей битвой.";
+  }
   document.getElementById('btn-next').textContent = G.battleIdx>=BATTLES.length-1 ? "Финал" : "Следующая битва";
   G.retry=false; showScreen('result');
 }
