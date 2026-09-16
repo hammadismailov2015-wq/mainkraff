@@ -1,0 +1,16 @@
+{
+  "name": "Путь сподвижника",
+  "short_name": "Сподвижник",
+  "description": "Историческая аркада о великих сражениях раннего Ислама.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#150d05",
+  "theme_color": "#2f1e0a",
+  "lang": "ru",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

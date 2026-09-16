@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Путь сподвижника — سبيل الصحابة</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2f1e0a">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Сподвижник">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   :root{
@@ -150,6 +158,8 @@
       <button class="btn sec" id="btn-levels">Выбор битвы</button>
       <button class="btn sec" id="btn-shop">🔨 Кузница</button>
     </div>
+    <button class="btn" id="btn-install" style="display:none; margin-top:10px">📥 Установить игру</button>
+    <p class="muted" id="installed-note" style="display:none; margin-top:8px">✅ Игра установлена — ищи её на рабочем столе.</p>
   </div>
 </div>
 
@@ -1146,6 +1156,23 @@ document.getElementById('btn-next').onclick=()=>{
   openIntro(nx);
 };
 updWeaponUI(); updHud(); showScreen('menu');
+</script>
+<script>
+/* ===== PWA: установка приложения + офлайн ===== */
+(function(){
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
+  }
+  var deferred=null, btn=document.getElementById('btn-install'), note=document.getElementById('installed-note');
+  var standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
+  window.addEventListener('beforeinstallprompt', function(e){ e.preventDefault(); deferred=e; if(btn && !standalone) btn.style.display=''; });
+  if(btn) btn.addEventListener('click', function(){
+    if(deferred){ deferred.prompt(); deferred.userChoice.then(function(){ deferred=null; btn.style.display='none'; }); }
+    else { alert('Чтобы установить: в меню браузера выбери «Установить приложение» / «На главный экран».'); }
+  });
+  window.addEventListener('appinstalled', function(){ if(btn) btn.style.display='none'; if(note) note.style.display=''; });
+  if(standalone && note){ note.style.display=''; }
+})();
 </script>
 </body>
 </html>
